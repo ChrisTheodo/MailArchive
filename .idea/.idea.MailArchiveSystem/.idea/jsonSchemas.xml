@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="JsonSchemaMappingsProjectConfiguration">
+    <state>
+      <map>
+        <entry key="RFC6902 JSON Patch Schema">
+          <value>
+            <SchemaInfo>
+              <option name="name" value="RFC6902 JSON Patch Schema" />
+              <option name="relativePathToSchema" value="../../../../rfc6902-schema.json" />
+              <option name="applicationDefined" value="true" />
+              <option name="patterns">
+                <list>
+                  <Item>
+                    <option name="path" value="MailArchive.API/appsettings.json" />
+                  </Item>
+                </list>
+              </option>
+            </SchemaInfo>
+          </value>
+        </entry>
+      </map>
+    </state>
+  </component>
+</project>
