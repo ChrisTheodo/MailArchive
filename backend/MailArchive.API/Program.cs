@@ -21,6 +21,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+const string FrontendCors = "Frontend";
 
 builder.Services.AddControllers();
 
@@ -43,6 +44,15 @@ builder.Services.AddScoped<IMailboxService, MailboxService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCors, policy =>
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials());
+});
 
 var pstParserProvider = builder.Configuration["MailArchive:PstParserProvider"] ?? "XstReader";
 
@@ -156,6 +166,7 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 
+app.UseCors(FrontendCors);
 app.UseAuthentication();
 app.UseAuthorization();
 
