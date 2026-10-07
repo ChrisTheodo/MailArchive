@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, reactive, ref } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMailStore } from '@/stores/mail'
 import { formatLongDate } from '@/utils/date'
@@ -15,25 +15,31 @@ const router = useRouter()
 
 const item = computed(() => mail.getById(props.id))
 
-watch(() => props.id, id => mail.markRead(id), { immediate: true })
+watch(
+  () => props.id,
+  (id) => mail.markRead(id),
+  { immediate: true },
+)
 
-const backTo = computed(() => props.label
-  ? { name: 'label', params: { label: props.label } }
-  : { name: 'folder', params: { folder: props.folder } })
+const backTo = computed(() =>
+  props.label
+    ? { name: 'label', params: { label: props.label } }
+    : { name: 'folder', params: { folder: props.folder } },
+)
 
 const goBack = () => router.push(backTo.value)
 
-function markUnread () {
+function markUnread() {
   mail.markRead(props.id, false)
   goBack()
 }
 
-function remove () {
+function remove() {
   mail.deleteMail(props.id)
   goBack()
 }
 
-function toggleSpam () {
+function toggleSpam() {
   mail.moveTo(props.id, item.value.folder === 'spam' ? 'inbox' : 'spam')
   goBack()
 }
@@ -44,14 +50,28 @@ function toggleSpam () {
     <v-btn icon="i-mdi-arrow-left" variant="text" size="small" title="Back" @click="goBack" />
     <template v-if="item">
       <v-btn
-        :icon="item.folder === 'spam' ? 'mdi-email-arrow-left-outline' : 'mdi-alert-octagon-outline'"
+        :icon="
+          item.folder === 'spam' ? 'i-mdi-email-arrow-left-outline' : 'i-mdi-alert-octagon-outline'
+        "
         :title="item.folder === 'spam' ? 'Not spam' : 'Report spam'"
         variant="text"
         size="small"
         @click="toggleSpam"
       />
-      <v-btn icon="i-mdi-delete-outline" title="Delete" variant="text" size="small" @click="remove" />
-      <v-btn icon="i-mdi-email-mark-as-unread" title="Mark as unread" variant="text" size="small" @click="markUnread" />
+      <v-btn
+        icon="i-mdi-delete-outline"
+        title="Delete"
+        variant="text"
+        size="small"
+        @click="remove"
+      />
+      <v-btn
+        icon="i-mdi-email-mark-as-unread"
+        title="Mark as unread"
+        variant="text"
+        size="small"
+        @click="markUnread"
+      />
     </template>
   </div>
   <v-divider />
@@ -85,7 +105,7 @@ function toggleSpam () {
         <v-spacer />
         <span class="text-medium-emphasis small">{{ formatLongDate(item.date) }}</span>
         <v-btn
-          :icon="item.starred ? 'mdi-star' : 'mdi-star-outline'"
+          :icon="item.starred ? 'i-mdi-star' : 'i-mdi-star-outline'"
           :color="item.starred ? 'amber' : undefined"
           variant="text"
           size="small"
@@ -96,19 +116,16 @@ function toggleSpam () {
       <div class="body">{{ item.body }}</div>
 
       <div class="d-flex ga-2 mt-8">
-        <v-btn prepend-icon="mdi-reply" variant="outlined" rounded="pill">Reply</v-btn>
-        <v-btn prepend-icon="mdi-share" variant="outlined" rounded="pill">Forward</v-btn>
+        <v-btn prepend-icon="i-mdi-reply" variant="outlined" rounded="pill">Reply</v-btn>
+        <v-btn prepend-icon="i-mdi-share" variant="outlined" rounded="pill">Forward</v-btn>
       </div>
     </div>
 
-    <div v-else class="pa-8 text-medium-emphasis">
-      This email doesn't exist or was deleted.
-    </div>
+    <div v-else class="pa-8 text-medium-emphasis">This email doesn't exist or was deleted.</div>
   </div>
 </template>
 
 <style scoped>
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -117,9 +134,14 @@ function toggleSpam () {
   min-height: 52px;
 }
 
-.scroll { flex: 1; overflow-y: auto; }
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+}
 
-.mail { padding: 16px 24px 32px 72px; }
+.mail {
+  padding: 16px 24px 32px 72px;
+}
 
 .subject-row {
   display: flex;
@@ -129,7 +151,11 @@ function toggleSpam () {
   margin-bottom: 20px;
 }
 
-.subject { font-size: 1.4rem; font-weight: 400; margin: 0; }
+.subject {
+  font-size: 1.4rem;
+  font-weight: 400;
+  margin: 0;
+}
 
 .sender-row {
   display: flex;
@@ -138,9 +164,13 @@ function toggleSpam () {
   margin-left: -52px;
 }
 
-.sender-info { min-width: 0; }
+.sender-info {
+  min-width: 0;
+}
 
-.small { font-size: 0.8rem; }
+.small {
+  font-size: 0.8rem;
+}
 
 .body {
   white-space: pre-line;
@@ -149,7 +179,12 @@ function toggleSpam () {
 }
 
 @media (max-width: 600px) {
-  .mail { padding: 16px; }
-  .sender-row { margin-left: 0; flex-wrap: wrap; }
+  .mail {
+    padding: 16px;
+  }
+  .sender-row {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
 }
 </style>

@@ -1,0 +1,9 @@
+.scrollbar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #848181 transparent;
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+}

@@ -1,16 +1,33 @@
-<script setup>
-import { ref } from 'vue'
+<script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useMailStore } from '@/stores/mail'
 import AppSidebar from '@/components/AppSidebar.vue'
+import toolboxLogo from '@/assets/toolbox-logo.svg'
+import { getSidebarRailWidth, SIDEBAR_DENSITY } from './constants/layout/app-side-bar'
+import { useDisplay } from 'vuetify'
 
+// CONSTANTS
 const mail = useMailStore()
 
-const drawer = ref(null)
+// STATE
+const drawer = ref<boolean | null>(true)
 const rail = ref(false)
+const aiSearchActive = ref(false)
+const { mobile } = useDisplay()
+const isHovering = ref(false)
+const sidebarExpanded = computed(() => !rail.value || isHovering.value)
 
-function toggleSidebar (isMobile) {
-  if (isMobile) drawer.value = !drawer.value
-  else rail.value = !rail.value
+// FUNCTIONS
+function toggleSidebar() {
+  if (mobile.value) {
+    drawer.value = !drawer.value
+  } else {
+    rail.value = !rail.value
+  }
+}
+
+function toggleAISearchMode() {
+  aiSearchActive.value = !aiSearchActive.value
 }
 </script>
 
@@ -18,43 +35,56 @@ function toggleSidebar (isMobile) {
   <v-app>
     <v-app-bar flat color="background" height="64">
       <template #prepend>
-        <v-app-bar-nav-icon @click="toggleSidebar($vuetify.display.mobile)" />
+        <v-app-bar-nav-icon @click="toggleSidebar" />
+        <div class="brand">
+          <v-avatar color="transparent" size="75">
+            <img :src="toolboxLogo" />
+          </v-avatar>
+          <span class="brand-title">Mail Archive</span>
+        </div>
       </template>
 
-      <div class="brand">
-        <v-avatar color="primary" size="36" rounded="lg">
-          <v-icon icon="mdi-email-fast-outline" />
-        </v-avatar>
-        <span class="brand-title">Toolbox Front Office</span>
-      </div>
-
-      <v-text-field
-        v-model="mail.search"
-        class="search mx-4"
-        placeholder="Search mail"
-        prepend-inner-icon="mdi-magnify"
-        variant="solo-filled"
-        density="comfortable"
-        rounded="pill"
-        flat
-        hide-details
-        clearable
-      />
-
-      <template #append>
-        <v-btn icon="mdi-cog-outline" variant="text" />
-        <v-avatar color="secondary" size="34" class="ml-2">M</v-avatar>
-      </template>
+      <v-app-bar-title>
+        <v-text-field
+          v-model="mail.search"
+          class="search"
+          :placeholder="aiSearchActive ? 'Αναζήτηση με AI' : 'Αναζήτηση email'"
+          :prepend-inner-icon="aiSearchActive ? 'i-mdi-face-agent' : 'i-mdi-magnify'"
+          variant="outlined"
+          density="comfortable"
+          rounded="pill"
+          flat
+          hide-details
+          clearable
+          bg-color="surface"
+          @click:clear="mail.clearSearch"
+        >
+          <template #append>
+            <v-icon-btn
+              :active="aiSearchActive"
+              icon="i-mdi-comment-search-outline"
+              active-icon="i-mdi-comment-search"
+              tag="button"
+              @click="toggleAISearchMode"
+              title="Αναζήτηση με AI"
+            />
+          </template>
+        </v-text-field>
+      </v-app-bar-title>
     </v-app-bar>
 
     <v-navigation-drawer
       v-model="drawer"
-      :rail="rail && !$vuetify.display.mobile"
+      :rail="rail && !mobile"
+      :rail-width="getSidebarRailWidth(SIDEBAR_DENSITY.COMPACT)"
       color="background"
-      border="0"
-      width="256"
+      border="none"
+      expand-on-hover
+      @update:rail="(collapsed: boolean) => (isHovering = !collapsed)"
+      open-delay="200"
+      close-delay="200"
     >
-      <AppSidebar :rail="rail && !$vuetify.display.mobile" />
+      <AppSidebar :expanded="sidebarExpanded" :isMobile="mobile" />
     </v-navigation-drawer>
 
     <v-main>
@@ -68,22 +98,19 @@ function toggleSidebar (isMobile) {
 </template>
 
 <style scoped>
-
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 200px;
 }
 
 .brand-title {
-  font-size: 1.35rem;
-  font-weight: 500;
+  font-size: 1.25rem;
   white-space: nowrap;
 }
 
 .search {
-  max-width: 720px;
+  max-width: 500px;
 }
 
 .content-wrap {
@@ -98,9 +125,19 @@ function toggleSidebar (isMobile) {
   flex-direction: column;
 }
 
+:deep(.v-navigation-drawer__content) {
+  overflow: hidden;
+}
+
 @media (max-width: 600px) {
-  .content-wrap { padding: 0; }
-  .brand { min-width: 0; }
-  .brand-title { display: none; }
+  .content-wrap {
+    padding: 0;
+  }
+  .brand {
+    min-width: 0;
+  }
+  .brand-title {
+    display: none;
+  }
 }
 </style>

@@ -3,3 +3,11 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+.vscode/
+
+# Vue frontend ignored files and directories
+node_modules/
+dist/
+build/
+.env
+
