@@ -16,6 +16,7 @@ public class AuditLog
     public Guid? EntityId { get; set; }
 
     // Context
+    public string? Details { get; set; }
     public string? IpAddress { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

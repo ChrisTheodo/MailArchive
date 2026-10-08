@@ -83,6 +83,9 @@ namespace MailArchive.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Details")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("EntityId")
                         .HasColumnType("uuid");
 

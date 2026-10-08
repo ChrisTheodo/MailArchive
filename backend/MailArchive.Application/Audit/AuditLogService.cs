@@ -23,7 +23,8 @@ public class AuditLogService : IAuditLogService
         string action,
         string entityType,
         Guid? entityId = null,
-        Guid? userIdOverride = null)
+        Guid? userIdOverride = null,
+        string? details = null)
     {
         var auditLog = new AuditLog
         {
@@ -32,6 +33,7 @@ public class AuditLogService : IAuditLogService
             Action = action,
             EntityType = entityType,
             EntityId = entityId,
+            Details = details,
             IpAddress = _currentUser.IpAddress,
             CreatedAt = DateTime.UtcNow
         };

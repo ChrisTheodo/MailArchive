@@ -11,6 +11,6 @@ public interface IMailboxService
     Task<Result<Mailbox>> GetByIdAsync(Guid id);
     Task<Result<Mailbox>> CreateAsync(CreateMailboxRequest request);
     Task<Result<Mailbox>> UpdateAsync(Guid id, UpdateMailboxRequest request);
-
+    Task<Result<Mailbox>> DeleteAsync(Guid id);
     Task<PagedResult<Mailbox>> GetPagedAsync(MailboxQueryParameters query);
 }
