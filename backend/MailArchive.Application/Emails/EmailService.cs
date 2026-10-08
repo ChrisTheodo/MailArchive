@@ -79,6 +79,26 @@ public class EmailService : IEmailService
         return Result<Email>.Success(email);
     }
 
+    public async Task<Result<Email>> DeleteAsync(Guid id)
+    {
+        var query = _db.Emails
+            .Include(x => x.Recipients)
+            .Include(x => x.Attachments)
+            .Where(x => x.Id == id);
+
+        query = ApplyUserIsolation(query);
+
+        var email = await query.FirstOrDefaultAsync();
+
+        if (email == null)
+            return Result<Email>.Failure("EmailNotFound");
+
+        _db.Emails.Remove(email);
+        await _db.SaveChangesAsync();
+
+        return Result<Email>.Success(email);
+    }
+
     public async Task<Result<List<Attachment>>> GetAttachmentsByEmailIdAsync(Guid emailId)
     {
         var emailQuery = _db.Emails

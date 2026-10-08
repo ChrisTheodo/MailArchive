@@ -10,5 +10,7 @@ public interface IEmailService
 
     Task<Result<Email>> GetByIdAsync(Guid id);
 
+    Task<Result<Email>> DeleteAsync(Guid id);
+
     Task<Result<List<Attachment>>> GetAttachmentsByEmailIdAsync(Guid emailId);
 }
