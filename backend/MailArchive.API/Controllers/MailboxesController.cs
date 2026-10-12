@@ -133,8 +133,8 @@ public class MailboxesController : ControllerBase
 
         if (!result.IsSuccess)
             return result.Error == "MailboxNotFound"
-                ? NotFound(result.Error)
-                : BadRequest(result.Error);
+                ? NotFound(ApiResponse<string>.Fail(result.Error))
+                : BadRequest(ApiResponse<string>.Fail(result.Error!));
 
         var mailbox = result.Value!;
 
@@ -145,6 +145,6 @@ public class MailboxesController : ControllerBase
             details: $"DisplayName={mailbox.DisplayName}, OwnerUserId={mailbox.OwnerUserId}"
             );
 
-        return NoContent();
+        return Ok(ApiResponse<bool>.Ok(true));
     }
 }
