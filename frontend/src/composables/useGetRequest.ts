@@ -4,17 +4,17 @@ import api from './axios-api'
 import { type AxiosRequestConfig } from 'axios'
 import { getErrorMessage } from './useGetErrorMessage'
 
-export function useGetRequest<T>(url: string, config?: AxiosRequestConfig) {
+export function useGetRequest<T>(defaultConfig?: AxiosRequestConfig) {
   const data = shallowRef<T | null>(null)
   const error = ref<string | null>(null)
   const isLoading = ref(false)
 
-  const execute = async () => {
+  const execute = async (url: string, config?: AxiosRequestConfig) => {
     isLoading.value = true
     error.value = null
 
     try {
-      const res = await api.get<ApiResponse<T>>(url, config)
+      const res = await api.get<ApiResponse<T>>(url, { ...defaultConfig, ...config })
       const body = res.data
 
       if (body.success) {

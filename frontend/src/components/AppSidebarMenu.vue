@@ -1,40 +1,37 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import type { RouteLocationRaw } from 'vue-router'
+import { useRouter, type RouteLocationRaw } from 'vue-router'
+import ImportDialog from './ImportDialog.vue'
+
+interface MenuItem {
+  id: string
+  icon: string
+  title: string
+  to?: RouteLocationRaw
+  action?: () => unknown
+}
 
 defineProps({ expanded: Boolean })
 
 // CONSTANTS
 const authStore = useAuthStore()
+const router = useRouter()
 
 // STATE
-const menuItems = computed(() => {
-  const items: Array<{
-    id: string
-    icon: string
-    title: string
-    to?: RouteLocationRaw
-    action?: () => unknown
-  }> = [
-    { id: 'dashboard', icon: 'i-mdi-chart-bar', title: 'Ταμπλό', to: { name: 'dashboard' } },
-    { id: 'settings', icon: 'i-mdi-cog-outline', title: 'Ρυθμίσεις' },
-  ]
+const menuItems = ref<Array<MenuItem>>([
+  { id: 'dashboard', icon: 'i-mdi-chart-bar', title: 'Ταμπλό', to: { name: 'dashboard' } },
+  { id: 'import', icon: 'i-mdi-import', title: 'Εισαγωγή αρχείου' },
+  { id: 'logout', icon: 'i-mdi-logout', title: 'Αποσύνδεση', action: logout },
+])
 
-  if (authStore.isAuthenticated) {
-    items.push({
-      id: 'logout',
-      icon: 'i-mdi-logout',
-      title: 'Αποσύνδεση',
-      action: authStore.logout,
-    })
-  } else {
-    items.push({ id: 'login', icon: 'i-mdi-login', title: 'Σύνδεση', action: authStore.login })
-  }
-
-  return items
-})
 const menu = ref(false)
+
+// METHODS
+async function logout() {
+  await authStore.logout()
+  router.replace({ name: 'login' })
+}
 </script>
 
 <template>
@@ -64,6 +61,8 @@ const menu = ref(false)
           :to="item.to"
         >
           {{ item.title }}
+
+          <ImportDialog v-if="item.id === 'import'" />
         </v-list-item>
       </v-list>
     </v-menu>

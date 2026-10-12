@@ -1,7 +1,9 @@
 import type { DotNetDateTime } from '@/types/date-time'
 
 export interface EmailQueryParameters {
+  /* Defaults to 1 */
   page: number
+  /* Defaults to 20 */
   pageSize: number
   search?: string | null
   mailboxId?: string | null
@@ -15,5 +17,6 @@ export interface EmailQueryParameters {
   hasAttachments?: boolean | null
   attachmentFileName?: string | null
   sortBy?: string | null
+  /* Defaults to true */
   sortDescending: boolean
 }

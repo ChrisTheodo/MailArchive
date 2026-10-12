@@ -1,3 +1,7 @@
+import type { ImportGetByIdRequest } from '@/types/imports/import-get-by-id-request'
+import type { MailboxGetByIdRequest } from '@/types/mailboxes/mailbox-get-by-id-request'
+import type { MeImportActionsCancelRequest } from '@/types/me/me-import-actions-cancel-request'
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
 
 export const API_URLS = {
@@ -25,7 +29,7 @@ export const API_URLS = {
   mailboxes: {
     list: `${API_BASE_URL}/api/mailboxes`,
     post: `${API_BASE_URL}/api/mailboxes`,
-    getById: (id: string) => `${API_BASE_URL}/api/mailboxes/${id}`,
+    getById: (request: MailboxGetByIdRequest) => `${API_BASE_URL}/api/mailboxes/${request.id}`,
     putById: (id: string) => `${API_BASE_URL}/api/mailboxes/${id}`,
   },
   users: {
@@ -41,10 +45,11 @@ export const API_URLS = {
     meImportActions: {
       pstUpload: `${API_BASE_URL}/api/me/imports/pst/upload`,
       processBackground: (id: string) => `${API_BASE_URL}/api/me/imports/${id}/process/background`,
-      cancel: (id: string) => `${API_BASE_URL}/api/me/imports/${id}/cancel`,
+      cancel: (request: MeImportActionsCancelRequest) =>
+        `${API_BASE_URL}/api/me/imports/${request.id}/cancel`,
     },
     meImportDetails: {
-      detail: (id: string) => `${API_BASE_URL}/api/me/imports/${id}`,
+      getById: (request: ImportGetByIdRequest) => `${API_BASE_URL}/api/me/imports/${request.id}`,
       progress: (id: string) => `${API_BASE_URL}/api/me/imports/${id}/progress`,
       errors: (id: string) => `${API_BASE_URL}/api/me/imports/${id}/errors`,
     },
