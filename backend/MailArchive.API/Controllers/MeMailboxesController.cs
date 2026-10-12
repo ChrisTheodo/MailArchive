@@ -2,7 +2,9 @@ using System.Security.Claims;
 using MailArchive.Application.Abstractions;
 using MailArchive.Application.Audit;
 using MailArchive.Application.Common;
+using MailArchive.Application.Contracts.Mailboxes;
 using MailArchive.Application.Contracts.Me;
+using MailArchive.Application.Mailboxes;
 using MailArchive.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,13 +19,16 @@ public class MeMailboxesController : ControllerBase
 {
     private readonly IMailArchiveDbContext _db;
     private readonly IAuditLogService _auditLogService;
+    private readonly IMailboxService _mailboxService;
 
     public MeMailboxesController(
         IMailArchiveDbContext db,
-        IAuditLogService auditLogService)
+        IAuditLogService auditLogService,
+        IMailboxService mailboxService)
     {
         _db = db;
         _auditLogService = auditLogService;
+        _mailboxService = mailboxService;
     }
 
     [HttpGet]
@@ -152,5 +157,39 @@ public class MeMailboxesController : ControllerBase
             entityType: "Mailbox");
 
         return Ok(ApiResponse<MyMailboxListResponse>.Ok(response));
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> CreateMyMailbox(MyMailboxCreateRequest request)
+    {
+        var userIdText = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (!Guid.TryParse(userIdText, out var currentUserId))
+            return Unauthorized(ApiResponse<string>.Fail("CurrentUserNotFound"));
+
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+            return BadRequest(ApiResponse<string>.Fail("DisplayNameRequired"));
+ 
+        var result = await _mailboxService.CreateAsync(
+            new CreateMailboxRequest(currentUserId, request.DisplayName.Trim()));
+ 
+        if (!result.IsSuccess)
+            return BadRequest(ApiResponse<string>.Fail(result.Error!));
+ 
+        var x = result.Value!;
+ 
+        await _auditLogService.LogAsync(
+            action: "MyMailboxCreated",
+            entityType: "Mailbox",
+            entityId: x.Id);
+ 
+        var response = new MailboxResponse(
+            x.Id,
+            x.DisplayName,
+            x.OwnerUserId,
+            x.OwnerUser?.Email
+        );
+ 
+        return Ok(ApiResponse<MailboxResponse>.Ok(response));
     }
 }
