@@ -1,19 +1,43 @@
 <script setup lang="ts">
-import { type Ref, ref, useTemplateRef } from 'vue'
+import { watch, type Ref, computed, ref, useTemplateRef } from 'vue'
+import { useRoute } from 'vue-router'
 import { useImportStore } from '@/stores/import'
+import { useMailboxStore } from '@/stores/mailbox'
 
-const { importPstFile } = useImportStore()
+type MailboxMode = 'existing' | 'new'
+
+// CONSTANTS
+const importStore = useImportStore()
+const mailboxStore = useMailboxStore()
+const route = useRoute()
+const MAX_SIZE = 1024 * 1024 * 1024
 
 // STATE
-const files = ref<File[]>([])
-const fileInputRef = useTemplateRef('fileInput')
+const files = ref<File | File[] | null>(null)
+const mailboxMode = ref<MailboxMode>('existing')
+const mailboxId = ref<string | null>(null)
+const newMailboxName = ref('')
+const formRef = useTemplateRef('form')
+const selectedFile = computed(() => (Array.isArray(files.value) ? files.value[0] : files.value))
+const isSubmitting = computed(
+  () =>
+    mailboxStore.isCreatingMailbox || importStore.isUploading || importStore.isStartingProcessing,
+)
 
 // METHODS
-function maxFileSizeRule(files: File[]) {
-  if (!files || files.length === 0) return true
-  const MAX_SIZE = 1024 * 1024 * 1024
+function stripExtension(fileName: string) {
+  return fileName.replace(/\.pst$/i, '')
+}
 
-  for (const file of files) {
+function requiredRule(value: unknown) {
+  if (Array.isArray(value) ? value.length : value) return true
+  return 'Το πεδίο είναι υποχρεωτικό'
+}
+
+function maxFileSizeRule(value: File | File[] | null) {
+  const list = Array.isArray(value) ? value : value ? [value] : []
+
+  for (const file of list) {
     if (file.size > MAX_SIZE) {
       return `Το αρχείο ${file.name} ξεπερνάει το όριο των 1 GB`
     }
@@ -22,37 +46,119 @@ function maxFileSizeRule(files: File[]) {
   return true
 }
 
-async function confirmUpload(isActive: Ref<boolean>) {
-  if (!fileInputRef.value?.isValid) return
-
-  await importPstFile()
-  isActive.value = false
+function pstExtensionRule(value: File | File[] | null) {
+  const list = Array.isArray(value) ? value : value ? [value] : []
+  if (list.every((file) => file.name.toLowerCase().endsWith('.pst'))) return true
+  return 'Επιτρέπονται μόνο αρχεία .pst'
 }
+
+function onOpen(isOpen: boolean) {
+  if (!isOpen) return
+  files.value = null
+  newMailboxName.value = ''
+  const routeMailbox = route.params.mailbox
+  mailboxId.value = typeof routeMailbox === 'string' ? routeMailbox : null
+  if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
+  mailboxMode.value = mailboxId.value || mailboxStore.mailboxes.length ? 'existing' : 'new'
+}
+
+async function resolveMailboxId() {
+  if (mailboxMode.value === 'existing') return mailboxId.value
+
+  const mailbox = await mailboxStore.createMailbox({ displayName: newMailboxName.value.trim() })
+  if (!mailbox) return null
+
+  // Keep the created mailbox selected if the upload fails and the user retries
+  mailboxMode.value = 'existing'
+  mailboxId.value = mailbox.id
+  return mailbox.id
+}
+
+async function confirmUpload(isActive: Ref<boolean>) {
+  const result = await formRef.value?.validate()
+  if (!result?.valid || !mailboxId.value || !selectedFile.value) return
+
+  const targetMailboxId = await resolveMailboxId()
+  if (!targetMailboxId) return
+
+  const batch = await importStore.importPstFile({
+    mailboxId: mailboxId.value,
+    file: selectedFile.value,
+  })
+  if (!batch) return
+
+  await importStore.processImportInBackground(batch.id)
+  isActive.value = false
+
+  importStore.fetchImports({ mailboxId: batch.mailboxId })
+  mailboxStore.fetchMailboxes()
+}
+
+// WATCHERS
+watch(selectedFile, (file, previous) => {
+  const previousSuggestion = previous ? stripExtension(previous.name) : ''
+  if (file && (!newMailboxName.value || newMailboxName.value === previousSuggestion)) {
+    newMailboxName.value = stripExtension(file.name)
+  }
+})
 </script>
 
 <template>
-  <v-dialog activator="parent" max-width="420">
+  <v-dialog activator="parent" max-width="420" @update:model-value="onOpen">
     <template #default="{ isActive }">
       <v-card prepend-icon="i-mdi-import" title="Εισαγωγή αρχείου">
+        <v-divider />
         <v-card-text>
-          <v-file-input
-            ref="fileInput"
-            v-model="files"
-            label="Αρχείο .pst"
-            accept=".pst"
-            show-size
-            :rules="[maxFileSizeRule]"
-          />
+          <v-form ref="form" @submit.prevent="confirmUpload(isActive)">
+            <v-btn-toggle
+              v-model="mailboxMode"
+              mandatory
+              divided
+              density="compact"
+              color="primary"
+              variant="outlined"
+              class="mb-4"
+            >
+              <v-btn value="existing" text="Υπάρχον mailbox" />
+              <v-btn value="new" text="Νέο mailbox" />
+            </v-btn-toggle>
+
+            <v-select
+              v-if="mailboxMode === 'existing'"
+              v-model="mailboxId"
+              label="Mailbox"
+              :items="mailboxStore.mailboxes"
+              item-title="displayName"
+              item-value="mailboxId"
+              :loading="mailboxStore.isLoadingMailboxes"
+              :rules="[requiredRule]"
+            />
+            <v-text-field
+              v-else
+              v-model="newMailboxName"
+              label="Όνομα νέου mailbox"
+              :rules="[requiredRule]"
+            />
+
+            <v-file-input
+              v-model="files"
+              label="Αρχείο .pst"
+              accept=".pst"
+              show-size
+              :rules="[requiredRule, pstExtensionRule, maxFileSizeRule]"
+            />
+          </v-form>
         </v-card-text>
 
         <v-divider />
 
         <v-card-actions>
-          <v-btn text="Κλείσιμο" @click="isActive.value = false" />
+          <v-btn text="Κλείσιμο" :disabled="isSubmitting" @click="isActive.value = false" />
           <v-btn
             text="Επιβεβαίωση"
             color="primary"
             variant="tonal"
+            :loading="isSubmitting"
             @click="confirmUpload(isActive)"
           />
         </v-card-actions>

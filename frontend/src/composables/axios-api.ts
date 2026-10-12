@@ -12,7 +12,11 @@ api.interceptors.request.use((config) => {
   if (authStore.accessToken && authStore.tokenType) {
     config.headers.Authorization = `${authStore.tokenType} ${authStore.accessToken}`
   }
-  config.headers['Content-Type'] = 'application/json'
+
+  // FormData needs the browser to set multipart/form-data with its boundary
+  if (!(config.data instanceof FormData)) {
+    config.headers['Content-Type'] = 'application/json'
+  }
 
   return config
 })

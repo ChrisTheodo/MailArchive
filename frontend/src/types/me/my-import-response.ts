@@ -2,7 +2,7 @@ import type { DotNetDateTime } from '../date-time'
 
 export interface MyImportResponse {
   id: string
-  pstFileName: string
+  pstFilename: string
   mailboxDisplayName?: string | null
   status: string
   startedAt: DotNetDateTime

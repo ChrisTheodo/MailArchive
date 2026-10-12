@@ -1,20 +1,26 @@
 import type { ApiResponse } from '@/types/common/api-response'
 import { ref, shallowRef } from 'vue'
 import api from './axios-api'
-import { isAxiosError, type AxiosRequestConfig } from 'axios'
+import { type AxiosRequestConfig } from 'axios'
 import { getErrorMessage } from './useGetErrorMessage'
 
-export function usePostRequest<TRequest, TResponse>(url: string, config?: AxiosRequestConfig) {
+export function usePostRequest<TRequest, TResponse>(defaultConfig?: AxiosRequestConfig) {
   const data = shallowRef<TResponse | null>(null)
   const error = ref<string | null>(null)
   const isLoading = ref(false)
 
-  const execute = async (requestBody?: TRequest) => {
+  const execute = async (
+    url: string,
+    options?: { requestBody?: TRequest; config?: AxiosRequestConfig },
+  ) => {
     isLoading.value = true
     error.value = null
 
     try {
-      const res = await api.post<ApiResponse<TResponse>>(url, requestBody, config)
+      const res = await api.post<ApiResponse<TResponse>>(url, options?.requestBody, {
+        ...defaultConfig,
+        ...options?.config,
+      })
       const body = res.data
 
       if (body.success) {

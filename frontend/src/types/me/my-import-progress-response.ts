@@ -14,5 +14,5 @@ export interface MyImportProgressResponse {
   isCompleted: boolean
   hasErrors: boolean
   startedAt: DotNetDateTime
-  completedAt?: string | null
+  completedAt?: DotNetDateTime | null
 }

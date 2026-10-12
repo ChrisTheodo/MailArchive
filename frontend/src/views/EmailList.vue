@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEmailStore } from '@/stores/email'
 import { useMailboxStore } from '@/stores/mailbox'
 import { formatShortDate } from '@/utils/date'
 import type { EmailListResponse } from '@/types/emails/email-list-response'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const props = defineProps<{ mailbox?: string }>()
 
@@ -32,6 +33,9 @@ const heading = computed(() => {
     ''
   )
 })
+
+const isDeleteEmailDialogOpen = ref(false)
+const emailToDelete = ref<EmailListResponse | null>(null)
 
 const rangeText = computed(() => {
   if (!totalCount.value) return ''
@@ -69,6 +73,37 @@ function senderOf(item: EmailListResponse) {
 function dateOf(item: EmailListResponse) {
   const date = item.receivedAt ?? item.sentAt
   return date ? formatShortDate(date) : ''
+}
+
+function askDeleteEmail(item: EmailListResponse) {
+  emailToDelete.value = item
+  isDeleteEmailDialogOpen.value = true
+}
+
+async function confirmDeleteEmail() {
+  const email = emailToDelete.value
+  if (!email) return
+
+  const ok = await emailStore.deleteEmail({ id: email.id })
+  if (!ok) return
+
+  isDeleteEmailDialogOpen.value = false
+  emailToDelete.value = null
+
+  if (route.params.id === email.id) {
+    router.push({
+      name: 'mailbox',
+      params: { mailbox: props.mailbox ?? email.mailboxId },
+      query: route.query,
+    })
+    return
+  }
+
+  if (!items.value.length && page.value > 1) {
+    goToPage(page.value - 1)
+  } else {
+    load()
+  }
 }
 
 // WATCHERS
@@ -137,7 +172,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
             <div class="row-body">
               <span class="sender">{{ senderOf(item) }}</span>
               <span class="preview">
-                <span class="subject">{{ item.subject || '(no subject)' }}</span>
+                <span class="subject">{{ item.subject || '(χωρίς θέμα)' }}</span>
                 <span v-if="item.searchSnippet" class="text-medium-emphasis">
                   — {{ item.searchSnippet }}
                 </span>
@@ -145,14 +180,25 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
             </div>
 
             <template #append>
-              <v-icon
-                v-if="item.hasAttachments"
-                icon="i-mdi-paperclip"
-                size="small"
-                class="text-medium-emphasis mr-2"
-                :title="item.attachmentFileNames.join(', ')"
-              />
-              <span class="date">{{ dateOf(item) }}</span>
+              <div class="justify-items-center">
+                <v-icon
+                  v-if="item.hasAttachments"
+                  icon="i-mdi-paperclip"
+                  size="small"
+                  class="text-medium-emphasis mr-2"
+                  :title="item.attachmentFileNames.join(', ')"
+                />
+                <span class="date">{{ dateOf(item) }}</span>
+                <v-icon
+                  class="ml-2 email-row-icon"
+                  color="black"
+                  icon="i-mdi-trash"
+                  size="small"
+                  title="Διαγραφή"
+                  :disabled="emailStore.isDeletingEmail"
+                  @click.stop.prevent="askDeleteEmail(item)"
+                />
+              </div>
             </template>
           </v-list-item>
           <v-divider />
@@ -168,22 +214,44 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
       <div class="empty text-medium-emphasis">
         <template v-if="!mailbox">
           <v-icon icon="i-mdi-inbox-outline" size="48" class="mb-2" />
-          <div>No mailboxes yet.</div>
+          <div>Δεν υπάρχουν ακόμα mailboxes</div>
         </template>
 
         <template v-else-if="emailStore.emailsError">
           <v-icon icon="i-mdi-alert-circle-outline" size="48" class="mb-2" />
-          <div>Could not load emails.</div>
-          <v-btn variant="text" class="mt-2" @click="load">Try again</v-btn>
+          <div>Τα email δεν μπορούν να φορτωθούν</div>
+          <v-btn variant="text" class="mt-2" @click="load">Προσπαθήστε ξανά</v-btn>
         </template>
 
         <template v-else>
           <v-icon icon="i-mdi-email-open-outline" size="48" class="mb-2" />
-          <div>{{ emailStore.search ? 'No emails match your search.' : 'Nothing here.' }}</div>
+          <div>
+            {{
+              emailStore.search
+                ? 'Δεν υπάρχει email που να ταιριάζει στην αναζήτηση σας'
+                : 'Δεν υπάρχει κάτι εδώ'
+            }}
+          </div>
         </template>
       </div>
     </template>
   </v-data-iterator>
+
+  <ConfirmDialog
+    v-model="isDeleteEmailDialogOpen"
+    title="Διαγραφή email"
+    confirm-color="error"
+    confirm-text="Διαγραφή"
+    icon="i-mdi-alert-outline"
+    :loading="emailStore.isDeletingEmail"
+    @cancel="emailToDelete = null"
+    @confirm="confirmDeleteEmail"
+  >
+    Είστε σίγουροι πως θέλετε να διαγράψετε το email με θέμα
+    <strong>{{ emailToDelete?.subject || '(χωρίς θέμα)' }}</strong> από
+    <strong>{{ emailToDelete?.senderName || emailToDelete?.senderEmail }}</strong
+    >; Τα συνημμένα του θα διαγραφούν οριστικά.
+  </ConfirmDialog>
 </template>
 
 <style scoped>
@@ -243,6 +311,30 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
   flex-direction: column;
   align-items: center;
   padding: 64px 16px;
+}
+
+.email-row-icon {
+  opacity: 0;
+  pointer-events: none;
+  transition: color 0.2s;
+}
+
+.v-list-item:hover .email-row-icon,
+.v-list-item:focus-within .email-row-icon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.email-row-icon:hover {
+  color: rgb(var(--v-theme-primary));
+}
+
+/* For touch devices since they have no hover */
+@media (hover: none) {
+  .email-row-icon {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 @media (max-width: 600px) {

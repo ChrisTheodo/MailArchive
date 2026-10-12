@@ -128,7 +128,7 @@ async function download(a: EmailAttachmentResponse) {
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch {
-    addErrorMessage(`Could not download ${a.fileName}`)
+    addErrorMessage(`Αποτυχία κατεβάσματος ${a.fileName}`)
   } finally {
     downloadingId.value = null
   }
@@ -206,7 +206,7 @@ onBeforeUnmount(() => {
 
   <div class="scroll scrollbar">
     <div v-if="email" class="mail">
-      <h1 class="subject">{{ email.subject || '(no subject)' }}</h1>
+      <h1 class="subject">{{ email.subject || '(χωρίς θέμα)' }}</h1>
 
       <div class="sender-row">
         <v-avatar color="primary" size="40">{{ senderInitial }}</v-avatar>
@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
       >
         <template #append>
           <v-btn variant="text" size="small" @click="showScriptDialog = true">
-            Allow for this session
+            Να επιτραπούν για την τωρινή συνεδρία
           </v-btn>
         </template>
       </v-alert>
@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
         text="Scripts are enabled for this session."
       >
         <template #append>
-          <v-btn variant="text" size="small" @click="disableScripts">Turn off</v-btn>
+          <v-btn variant="text" size="small" @click="disableScripts">Απενεργοποίηση</v-btn>
         </template>
       </v-alert>
 
@@ -275,12 +275,12 @@ onBeforeUnmount(() => {
         @load="onFrameLoad"
       />
       <div v-else-if="email.bodyText" class="body">{{ email.bodyText }}</div>
-      <div v-else class="body text-medium-emphasis">(no content)</div>
+      <div v-else class="body text-medium-emphasis">(δεν υπάρχει περιεχόμενο)</div>
 
       <div v-if="email.attachments.length" class="attachments">
         <div class="text-medium-emphasis small mb-2">
           {{ email.attachments.length }}
-          {{ email.attachments.length === 1 ? 'attachment' : 'attachments' }}
+          {{ email.attachments.length === 1 ? 'συνημμένο' : 'συνημμένα' }}
         </div>
         <div class="d-flex flex-wrap ga-2">
           <v-chip
@@ -327,8 +327,8 @@ onBeforeUnmount(() => {
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn variant="text" @click="showScriptDialog = false">Cancel</v-btn>
-        <v-btn color="warning" variant="flat" @click="enableScripts">Allow scripts</v-btn>
+        <v-btn variant="text" @click="showScriptDialog = false">Ακύρωση</v-btn>
+        <v-btn color="warning" variant="flat" @click="enableScripts">Να επιτραπούν scripts</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

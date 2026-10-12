@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onBeforeMount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import ImportDialog from './ImportDialog.vue'
+import { useUserStore } from '@/stores/user.ts'
 
 interface MenuItem {
   id: string
@@ -16,6 +17,7 @@ defineProps({ expanded: Boolean })
 
 // CONSTANTS
 const authStore = useAuthStore()
+const userStore = useUserStore()
 const router = useRouter()
 
 // STATE
@@ -26,27 +28,52 @@ const menuItems = ref<Array<MenuItem>>([
 ])
 
 const menu = ref(false)
+const avatarText = computed(
+  () => userStore.currentUser?.displayName?.trim().charAt(0).toUpperCase() || 'Ο',
+)
 
 // METHODS
 async function logout() {
   await authStore.logout()
   router.replace({ name: 'login' })
 }
+
+onBeforeMount(() => userStore.fetchMe())
 </script>
 
 <template>
   <v-list-item
     density="compact"
-    variant="elevated"
-    :class="['flex-0-0', { 'w-50 align-self-center': expanded }]"
-    :prepend-icon="menu ? 'i-mdi-menu-close' : 'i-mdi-menu-open'"
+    variant="text"
+    :class="['flex-0-0']"
     rounded="md"
-    prepend-gap="4"
+    :title="expanded ? (userStore.currentUser?.displayName ?? 'Όνομα χρήστη') : undefined"
+    :subtitle="expanded ? (userStore.currentUser?.email ?? 'Email χρήστη') : undefined"
+    lines="one"
   >
-    Μενού
+    <v-tooltip activator="parent" location="end" open-delay="300">
+      <div class="font-weight-medium">
+        {{ userStore.currentUser?.displayName ?? 'Όνομα χρήστη' }}
+      </div>
+      <div class="text-caption">{{ userStore.currentUser?.email ?? 'Email χρήστη' }}</div>
+    </v-tooltip>
+
+    <template #prepend>
+      <v-avatar :text="avatarText" color="primary" density="compact" />
+    </template>
+
+    <template v-if="expanded" #append>
+      <v-btn
+        id="menu-btn"
+        :icon="menu ? 'i-mdi-menu-close' : 'i-mdi-menu-open'"
+        size="x-small"
+        variant="text"
+      />
+    </template>
+
     <v-menu
       v-model="menu"
-      activator="parent"
+      activator="#menu-btn"
       close-delay="200"
       open-delay="200"
       location="end center"

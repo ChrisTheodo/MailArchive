@@ -7,6 +7,9 @@ import { useGetRequest } from '@/composables/useGetRequest'
 import { API_URLS } from '@/constants/api-urls'
 import type { EmailDetailsResponse } from '@/types/emails/email-details-response'
 import type { EmailAttachmentResponse } from '@/types/emails/email-attachment-response'
+import { useDeleteRequest } from '@/composables/useDeleteRequest'
+import type { DeleteEmailRequest } from '@/types/emails/delete-email-request'
+import { useSnackbarMessagesStore } from './snackbar-messages'
 
 type EmailQuery = Partial<EmailQueryParameters>
 
@@ -17,10 +20,12 @@ export const useEmailStore = defineStore('email', () => {
   const search = ref('')
 
   // CONSTANTS
+  const snackbarMessagesStore = useSnackbarMessagesStore()
   const listRequest = useGetRequest<PagedResult<EmailListResponse>>()
   const searchRequest = useGetRequest<PagedResult<EmailListResponse>>()
   const detailsRequest = useGetRequest<EmailDetailsResponse>()
   const attachmentsRequest = useGetRequest<EmailAttachmentResponse[]>()
+  const deleteRequest = useDeleteRequest()
 
   // Only the most recent request may write its result
   let latestListRequest = 0
@@ -63,6 +68,28 @@ export const useEmailStore = defineStore('email', () => {
     return attachmentsRequest.execute(API_URLS.emails.attachments(emailId))
   }
 
+  async function deleteEmail(request: DeleteEmailRequest) {
+    const ok = await deleteRequest.execute(API_URLS.emails.delete(request))
+    if (!ok) {
+      snackbarMessagesStore.addErrorMessage('Αποτυχία διαγραφής email')
+      return false
+    }
+
+    emails.value = withoutEmail(emails.value, request.id)
+    emailsFromSearch.value = withoutEmail(emailsFromSearch.value, request.id)
+    snackbarMessagesStore.addSuccessMessage('Το email διαγράφηκε')
+    return true
+  }
+
+  function withoutEmail(page: PagedResult<EmailListResponse> | null, emailId: string) {
+    if (!page || !page.items.some((e) => e.id === emailId)) return page
+    return {
+      ...page,
+      items: page.items.filter((e) => e.id !== emailId),
+      totalCount: page.totalCount - 1,
+    }
+  }
+
   function clearSearch() {
     search.value = ''
     emailsFromSearch.value = null
@@ -86,11 +113,14 @@ export const useEmailStore = defineStore('email', () => {
     emailError: detailsRequest.error,
     isLoadingAttachments: attachmentsRequest.isLoading,
     attachmentsError: attachmentsRequest.error,
+    isDeletingEmail: deleteRequest.isLoading,
+    deleteError: deleteRequest.error,
     fetchEmails,
     fetchAllEmails,
     searchEmails,
     fetchEmail,
     fetchAttachments,
+    deleteEmail,
     clearSearch,
     $reset,
   }

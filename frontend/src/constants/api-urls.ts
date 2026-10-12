@@ -1,3 +1,5 @@
+import type { DeleteEmailRequest } from '@/types/emails/delete-email-request'
+import type { DeleteMailboxRequest } from '@/types/emails/delete-mailbox-request'
 import type { ImportGetByIdRequest } from '@/types/imports/import-get-by-id-request'
 import type { MailboxGetByIdRequest } from '@/types/mailboxes/mailbox-get-by-id-request'
 import type { MeImportActionsCancelRequest } from '@/types/me/me-import-actions-cancel-request'
@@ -25,12 +27,14 @@ export const API_URLS = {
     list: `${API_BASE_URL}/api/emails`,
     getById: (id: string) => `${API_BASE_URL}/api/emails/${id}`,
     attachments: (id: string) => `${API_BASE_URL}/api/emails/${id}/attachments`,
+    delete: (request: DeleteEmailRequest) => `${API_BASE_URL}/api/emails/${request.id}/delete`,
   },
   mailboxes: {
     list: `${API_BASE_URL}/api/mailboxes`,
     post: `${API_BASE_URL}/api/mailboxes`,
     getById: (request: MailboxGetByIdRequest) => `${API_BASE_URL}/api/mailboxes/${request.id}`,
     putById: (id: string) => `${API_BASE_URL}/api/mailboxes/${id}`,
+    delete: (request: DeleteMailboxRequest) => `${API_BASE_URL}/api/mailboxes/${request.id}/delete`,
   },
   users: {
     list: `${API_BASE_URL}/api/users`,
@@ -58,6 +62,7 @@ export const API_URLS = {
     },
     meMailboxes: {
       mailboxes: `${API_BASE_URL}/api/me/mailboxes`,
+      post: `${API_BASE_URL}/api/me/mailboxes`,
     },
   },
 } as const
