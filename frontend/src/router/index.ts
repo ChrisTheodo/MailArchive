@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import MailList from '@/views/MailList.vue'
-import MailDetail from '@/views/MailDetail.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMailboxStore } from '@/stores/mailbox'
+import EmailList from '@/views/EmailList.vue'
+import EmailDetail from '@/views/EmailDetail.vue'
 
 const routes = [
   {
@@ -19,7 +19,7 @@ const routes = [
       {
         path: '',
         name: 'home',
-        component: MailList,
+        component: EmailList,
         beforeEnter: async () => {
           const mailboxStore = useMailboxStore()
           if (!mailboxStore.mailboxes.length) await mailboxStore.fetchMailboxes()
@@ -32,11 +32,11 @@ const routes = [
         name: 'dashboard',
         component: () => import('@/views/DashboardView.vue'),
       },
-      { path: 'mail/:mailbox', name: 'mailbox', component: MailList, props: true },
+      { path: 'mail/:mailbox', name: 'mailbox', component: EmailList, props: true },
       {
         path: 'mail/:mailbox/:id',
         name: 'mail',
-        component: MailDetail,
+        component: EmailDetail,
         props: true,
       },
       {

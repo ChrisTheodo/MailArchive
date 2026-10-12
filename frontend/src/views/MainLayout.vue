@@ -54,6 +54,7 @@ function toggleAISearchMode() {
       >
         <template #append>
           <v-icon-btn
+            v-if="false"
             :active="aiSearchActive"
             icon="i-mdi-comment-search-outline"
             active-icon="i-mdi-comment-search"

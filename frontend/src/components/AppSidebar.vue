@@ -1,26 +1,49 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppSidebarMenu from '@/components/AppSidebarMenu.vue'
 import ShowAllListItem from './ShowAllListItem.vue'
 import { useMailboxStore } from '@/stores/mailbox'
+import type { MyMailboxResponse } from '@/types/me/my-mailbox-response.ts'
+import ConfirmDialog from './ConfirmDialog.vue'
+
+interface MailboxAction {
+  id: string
+  title: string
+  icon: string
+  action: (mailbox: MyMailboxResponse) => void | Promise<unknown>
+}
 
 defineProps({ expanded: Boolean, isMobile: Boolean })
 
 // CONSTANTS
 const mailboxStore = useMailboxStore()
 const route = useRoute()
+const router = useRouter()
 const MAILBOX_SHOW_COUNT = 4
+const mailboxActions: MailboxAction[] = [
+  {
+    id: 'delete_mailbox',
+    title: 'Διαγραφή mailbox',
+    icon: 'i-mdi-trash-can-outline',
+    action: (mailbox) => {
+      mailboxToDelete.value = mailbox
+      isDeleteDialogOpen.value = true
+    },
+  },
+]
 
 // STATE
 const showAllMailboxes = ref(false)
-const hasRecents = ref(true)
+const hasRecents = ref(false)
 
 const filteredMailboxes = computed(() => {
   if (showAllMailboxes.value) return mailboxStore.mailboxes
   return mailboxStore.mailboxes.slice(0, MAILBOX_SHOW_COUNT)
 })
 const hasHiddenMailboxes = computed(() => mailboxStore.mailboxes.length > MAILBOX_SHOW_COUNT)
+const isDeleteDialogOpen = ref(false)
+const mailboxToDelete = ref<MyMailboxResponse | null>(null)
 
 // METHODS
 function toggleShowAllMailboxes() {
@@ -29,6 +52,18 @@ function toggleShowAllMailboxes() {
 
 function isMailboxActive(mailboxId: string) {
   return route.params.mailbox === mailboxId
+}
+
+async function confirmDeleteMailbox() {
+  const mailbox = mailboxToDelete.value
+  if (!mailbox) return
+
+  const ok = await mailboxStore.deleteMailbox({ id: mailbox.mailboxId })
+  if (!ok) return
+
+  isDeleteDialogOpen.value = false
+  if (isMailboxActive(mailbox.mailboxId)) router.push({ name: 'home' })
+  mailboxToDelete.value = null
 }
 
 if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
@@ -54,7 +89,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           :active="isMailboxActive(mailbox.mailboxId)"
           :title="mailbox.displayName"
           prepend-icon="i-mdi-inbox-outline"
-          rounded="pill"
+          rounded="lg"
         >
           <template #append>
             <div class="count text-medium-emphasis d-flex align-center ga-1">
@@ -65,22 +100,19 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
                     v-bind="menuProps"
                     class="justify-self-center menu-icon"
                     :color="menuOpen ? 'primary' : undefined"
-                    icon="i-mdi-dots-horizontal"
+                    icon="i-mdi-dots-vertical"
                     @click.stop.prevent
                   />
                 </template>
 
                 <v-list>
                   <v-list-item
-                    v-for="(item, index) in [
-                      { title: 'Δημιουργία νέου mailbox' },
-                      { title: 'Διαγραφή mailbox' },
-                    ]"
-                    :key="index"
-                    :value="index"
-                  >
-                    <v-list-item-title>{{ item.title }}</v-list-item-title>
-                  </v-list-item>
+                    v-for="item in mailboxActions"
+                    :key="item.id"
+                    :prepend-icon="item.icon"
+                    :title="item.title"
+                    @click="item.action(mailbox)"
+                  />
                 </v-list>
               </v-menu>
             </div>
@@ -93,7 +125,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
         />
       </v-list>
 
-      <v-divider />
+      <v-divider v-if="hasRecents" />
 
       <!-- Recent -->
       <v-list
@@ -107,6 +139,20 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
       </v-list>
     </div>
 
+    <ConfirmDialog
+      v-model="isDeleteDialogOpen"
+      title="Διαγραφή mailbox"
+      confirm-text="Διαγραφή"
+      confirm-color="error"
+      icon="i-mdi-alert-outline"
+      :loading="mailboxStore.isDeletingMailbox"
+      @cancel="mailboxToDelete = null"
+      @confirm="confirmDeleteMailbox"
+    >
+      Θέλετε σίγουρα να διαγράψετε το
+      <strong>{{ mailboxToDelete?.displayName }}</strong
+      >; Όλα τα emails και τα συνημμένα του θα διαγραφούν οριστικά.
+    </ConfirmDialog>
     <AppSidebarMenu :expanded="expanded" />
   </div>
 </template>

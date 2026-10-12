@@ -8,6 +8,8 @@ import type { LogoutRequest } from '@/types/auth/logout-request'
 import { STORAGE_KEYS } from '@/constants/storage-keys'
 import { useEmailStore } from './email'
 import { useEmailSettingsStore } from './email-settings'
+import { useMailboxStore } from './mailbox'
+import { useImportStore } from './import'
 
 export const useAuthStore = defineStore('auth', () => {
   // STATE
@@ -20,12 +22,12 @@ export const useAuthStore = defineStore('auth', () => {
   const { execute: loginExecute, isLoading: isLoginLoading } = usePostRequest<
     LoginRequest,
     LoginResponse
-  >(API_URLS.auth.login)
+  >()
 
   const { execute: logoutExecute, isLoading: isLogoutLoading } = usePostRequest<
     LogoutRequest,
     void
-  >(API_URLS.auth.logout)
+  >()
 
   function clearSession() {
     accessToken.value = null
@@ -37,7 +39,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(email: string, password: string) {
-    const res = await loginExecute({ email, password })
+    const res = await loginExecute(API_URLS.auth.login, { requestBody: { email, password } })
 
     if (!res) {
       clearSession()
@@ -55,11 +57,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout() {
     try {
-      await logoutExecute({ refreshToken: refreshToken.value })
+      await logoutExecute(API_URLS.auth.logout, {
+        requestBody: { refreshToken: refreshToken.value },
+      })
     } finally {
       clearSession()
       useEmailStore().$reset()
+      useMailboxStore().$reset()
       useEmailSettingsStore().$reset()
+      useImportStore().$reset()
     }
   }
 
