@@ -171,4 +171,23 @@ public class EmailsController : ControllerBase
             attachment.ContentHash
         );
     }
+
+    [HttpDelete("{id:guid}/delete")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var result = await _service.DeleteAsync(id);
+
+        if (!result.IsSuccess)
+            return NotFound(ApiResponse<string>.Fail(result.Error!));
+
+        var email = result.Value!;
+
+        await _auditLogService.LogAsync(
+            action: "EmailDeleted",
+            entityType: "Email",
+            entityId: id,
+            details: $"Subject={email.Subject}, Sender={email.SenderEmail}, MailboxId={email.MailboxId}");
+
+        return Ok(ApiResponse<bool>.Ok(true));
+    }
 }

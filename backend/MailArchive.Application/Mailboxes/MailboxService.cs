@@ -100,6 +100,20 @@ public class MailboxService : IMailboxService
         return Result<Mailbox>.Success(mailbox);
     }
 
+    public async Task<Result<Mailbox>> DeleteAsync(Guid id)
+    {
+        var mailbox = await _db.Mailboxes
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (mailbox == null)
+            return Result<Mailbox>.Failure("MailboxNotFound");
+
+        _db.Mailboxes.Remove(mailbox);
+        await _db.SaveChangesAsync();
+
+        return Result<Mailbox>.Success(mailbox);
+    }
+
     public async Task<PagedResult<Mailbox>> GetPagedAsync(MailboxQueryParameters query)
     {
         var page = query.Page < 1 ? 1 : query.Page;

@@ -10,7 +10,8 @@ public interface IAuditLogService
         string action,
         string entityType,
         Guid? entityId = null,
-        Guid? userIdOverride = null);
+        Guid? userIdOverride = null,
+        string? details = null);
 
     Task<PagedResult<AuditLog>> GetPagedAsync(AuditLogQueryParameters query);
 }

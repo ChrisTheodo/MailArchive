@@ -3,6 +3,7 @@ using MailArchive.Application.Common;
 using MailArchive.Application.Contracts.Mailboxes;
 using MailArchive.Application.Mailboxes;
 using MailArchive.Application.Mailboxes.Queries;
+using MailArchive.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -123,5 +124,27 @@ public class MailboxesController : ControllerBase
         );
 
         return Ok(ApiResponse<MailboxResponse>.Ok(response));
+    }
+
+    [HttpDelete("{id:guid}/delete")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var result = await _service.DeleteAsync(id);
+
+        if (!result.IsSuccess)
+            return result.Error == "MailboxNotFound"
+                ? NotFound(result.Error)
+                : BadRequest(result.Error);
+
+        var mailbox = result.Value!;
+
+        await _auditLogService.LogAsync(
+            action: "MailboxDeleted",
+            entityType: "Mailbox",
+            entityId: id,
+            details: $"DisplayName={mailbox.DisplayName}, OwnerUserId={mailbox.OwnerUserId}"
+            );
+
+        return NoContent();
     }
 }
