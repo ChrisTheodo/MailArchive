@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using MailArchive.API.Background;
 using MailArchive.API.Middleware;
 using MailArchive.API.Security;
@@ -23,7 +24,8 @@ using Microsoft.OpenApi;
 var builder = WebApplication.CreateBuilder(args);
 const string FrontendCors = "Frontend";
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.AddDbContext<MailArchiveDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
