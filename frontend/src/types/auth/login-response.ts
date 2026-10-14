@@ -6,6 +6,6 @@ export interface LoginResponse {
   tokenType: string
   expiresAtUtc: DotNetDateTime
   refreshToken: string
-  refreshTokenExpiresAtUtch: DotNetDateTime
+  refreshTokenExpiresAtUtc: DotNetDateTime
   user: UserResponse
 }

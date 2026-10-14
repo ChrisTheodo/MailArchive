@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { CurrentUserResponse } from '@/types/auth/current-user-response'
 import { useGetRequest } from '@/composables/useGetRequest'
@@ -7,7 +7,8 @@ import { useSnackbarMessagesStore } from './snackbar-messages'
 
 export const useUserStore = defineStore('user', () => {
   // STATE
-  const currentUser = ref<CurrentUserResponse>()
+  const currentUser = ref<CurrentUserResponse | null>(null)
+  const userType = computed(() => currentUser.value?.role)
 
   // CONSTANTS
   const meRequest = useGetRequest<CurrentUserResponse>()
@@ -23,10 +24,15 @@ export const useUserStore = defineStore('user', () => {
     currentUser.value = res
   }
 
+  function $reset() {
+    currentUser.value = null
+  }
+
   return {
     fetchMe,
     isMeLoading: meRequest.isLoading,
     isMeError: meRequest.error,
     currentUser,
+    $reset,
   }
 })

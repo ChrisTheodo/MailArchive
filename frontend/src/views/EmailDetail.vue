@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useResizeObserver } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { useEmailStore } from '@/stores/email'
-import { useEmailSettingsStore } from '@/stores/email-settings'
 import { useSnackbarMessagesStore } from '@/stores/snackbar-messages'
 import { API_URLS } from '@/constants/api-urls'
 import api from '@/composables/axios-api'
@@ -16,34 +16,19 @@ const props = defineProps<{ mailbox: string; id: string }>()
 
 // CONSTANTS
 const emailStore = useEmailStore()
-const emailSettings = useEmailSettingsStore()
 const { addErrorMessage } = useSnackbarMessagesStore()
 const route = useRoute()
 const router = useRouter()
 const RECIPIENT_TYPES = ['To', 'Cc', 'Bcc'] as const
-const MAX_FRAME_HEIGHT = 50000
-
-// Injected only when scripts are allowed. The frame then has its own origin,
-// so the parent can't read its height directly; the frame reports it instead.
-// ('<' + '/script>' is split so the .vue parser doesn't end this block here.)
-const RESIZE_SCRIPT =
-  `<script>(function () {
-  function send() {
-    parent.postMessage({ type: 'email-frame-height', height: document.documentElement.scrollHeight }, '*')
-  }
-  window.addEventListener('load', send)
-  if (window.ResizeObserver) new ResizeObserver(send).observe(document.documentElement)
-  send()
-})()<` + `/script>`
 
 // STATE
 const email = ref<EmailDetailsResponse | null>(null)
 const isLoading = ref(true)
 const downloadingId = ref<string | null>(null)
-const showScriptDialog = ref(false)
 const frame = ref<HTMLIFrameElement | null>(null)
 const frameHeight = ref(0)
-let frameObserver: ResizeObserver | undefined
+// Root element of the email document, observed for size changes
+const frameRoot = ref<HTMLElement | null>(null)
 
 const backTo = computed(() => ({
   name: 'mailbox',
@@ -55,7 +40,7 @@ const senderLabel = computed(() => email.value?.senderName || email.value?.sende
 const senderInitial = computed(() => (senderLabel.value.charAt(0) || '?').toUpperCase())
 const date = computed(() => email.value?.sentAt ?? email.value?.receivedAt ?? null)
 
-// Recipients grouped as To / Cc / Bcc, skipping empty groups
+// recipients grouped as To / Cc / Bcc, skipping empty groups
 const recipientGroups = computed(() =>
   RECIPIENT_TYPES.map((type) => ({
     type,
@@ -65,24 +50,13 @@ const recipientGroups = computed(() =>
   })).filter((group) => group.recipients.length),
 )
 
-// Rough check, only used to decide whether to offer the "allow scripts" option
-const hasScripts = computed(() =>
-  /<script\b|\son[a-z]+\s*=|javascript:/i.test(email.value?.bodyHtml ?? ''),
-)
+// email HTML is shown in a sandboxed iframe: scripts never run, and its styles can't
+// leak into the app.
+// links open in a new tab. allow-same-origin only lets the app read the
+// frame's height; NEVER add allow-scripts next to it, together they remove the sandbox
+// and the scripts can then run
+const FRAME_SANDBOX = 'allow-same-origin allow-popups allow-popups-to-escape-sandbox'
 
-// Script mode is only used for emails that actually contain scripts
-const scriptsEnabled = computed(() => emailSettings.allowScripts && hasScripts.value)
-
-// NEVER combine allow-scripts with allow-same-origin: together they let the
-// email's scripts remove the sandbox and read the app's tokens.
-const sandbox = computed(() =>
-  scriptsEnabled.value
-    ? 'allow-scripts allow-popups allow-popups-to-escape-sandbox'
-    : 'allow-same-origin allow-popups allow-popups-to-escape-sandbox',
-)
-
-// Email HTML is shown in a sandboxed iframe: by default scripts can't run, and
-// its styles can't leak into the app. Links open in a new tab.
 const htmlDocument = computed(() => {
   const html = email.value?.bodyHtml
   if (!html) return ''
@@ -90,7 +64,7 @@ const htmlDocument = computed(() => {
 <style>
   body { margin: 0; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; }
-</style>${scriptsEnabled.value ? RESIZE_SCRIPT : ''}</head><body>${html}</body></html>`
+</style></head><body>${html}</body></html>`
 })
 
 // METHODS
@@ -113,8 +87,8 @@ function attachmentIcon(a: EmailAttachmentResponse) {
   return 'i-mdi-file-outline'
 }
 
-// The download endpoint needs the auth header, so a plain <a href> won't work.
-// Fetch it as a blob through the authenticated axios instance instead.
+// the download endpoint needs the auth header
+// fetch it as a blob through the authenticated axios instance
 async function download(a: EmailAttachmentResponse) {
   downloadingId.value = a.id
   try {
@@ -134,35 +108,15 @@ async function download(a: EmailAttachmentResponse) {
   }
 }
 
-function enableScripts() {
-  emailSettings.allowScripts = true
-  showScriptDialog.value = false
-}
-
-function disableScripts() {
-  emailSettings.allowScripts = false
-}
-
-// Size the iframe to its content, and keep it sized as images load.
-// With scripts enabled the frame reports its height via onFrameMessage instead.
+// size the iframe to its content, and keep it sized as images load
 function onFrameLoad() {
-  frameObserver?.disconnect()
-  if (scriptsEnabled.value) return
-  const doc = frame.value?.contentDocument
-  if (!doc) return
-  const update = () => (frameHeight.value = doc.documentElement.scrollHeight)
-  update()
-  frameObserver = new ResizeObserver(update)
-  frameObserver.observe(doc.documentElement)
+  frameRoot.value = frame.value?.contentDocument?.documentElement ?? null
+  if (frameRoot.value) frameHeight.value = frameRoot.value.scrollHeight
 }
 
-// Only accept height messages from our own email frame
-function onFrameMessage(event: MessageEvent) {
-  if (!frame.value || event.source !== frame.value.contentWindow) return
-  const data = event.data
-  if (data?.type !== 'email-frame-height' || typeof data.height !== 'number') return
-  frameHeight.value = Math.min(Math.max(data.height, 0), MAX_FRAME_HEIGHT)
-}
+useResizeObserver(frameRoot, () => {
+  if (frameRoot.value) frameHeight.value = frameRoot.value.scrollHeight
+})
 
 // WATCHERS
 watch(
@@ -171,6 +125,7 @@ watch(
     isLoading.value = true
     email.value = null
     frameHeight.value = 0
+    frameRoot.value = null
     const res = await emailStore.fetchEmail(id)
     if (id !== props.id) return // user already opened another email
     email.value = res
@@ -178,13 +133,6 @@ watch(
   },
   { immediate: true },
 )
-
-onMounted(() => window.addEventListener('message', onFrameMessage))
-
-onBeforeUnmount(() => {
-  window.removeEventListener('message', onFrameMessage)
-  frameObserver?.disconnect()
-})
 </script>
 
 <template>
@@ -206,7 +154,7 @@ onBeforeUnmount(() => {
 
   <div class="scroll scrollbar">
     <div v-if="email" class="mail">
-      <h1 class="subject">{{ email.subject || '(χωρίς θέμα)' }}</h1>
+      <h1 class="subject">Θέμα: {{ email.subject || '(χωρίς θέμα)' }}</h1>
 
       <div class="sender-row">
         <v-avatar color="primary" size="40">{{ senderInitial }}</v-avatar>
@@ -234,43 +182,13 @@ onBeforeUnmount(() => {
         </span>
       </div>
 
-      <v-alert
-        v-if="hasScripts && !emailSettings.allowScripts"
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="mt-6"
-        text="This email contains scripts, which are blocked."
-      >
-        <template #append>
-          <v-btn variant="text" size="small" @click="showScriptDialog = true">
-            Να επιτραπούν για την τωρινή συνεδρία
-          </v-btn>
-        </template>
-      </v-alert>
-      <v-alert
-        v-else-if="scriptsEnabled"
-        type="warning"
-        variant="tonal"
-        density="compact"
-        class="mt-6"
-        text="Scripts are enabled for this session."
-      >
-        <template #append>
-          <v-btn variant="text" size="small" @click="disableScripts">Απενεργοποίηση</v-btn>
-        </template>
-      </v-alert>
-
-      <!-- :key recreates the frame when the sandbox changes; browsers ignore
-           sandbox changes on an iframe that is already loaded -->
       <iframe
         v-if="htmlDocument"
         ref="frame"
-        :key="sandbox"
         class="html-body"
         :srcdoc="htmlDocument"
         :style="{ height: `${frameHeight}px` }"
-        :sandbox="sandbox"
+        :sandbox="FRAME_SANDBOX"
         title="Email content"
         @load="onFrameLoad"
       />
@@ -317,21 +235,6 @@ onBeforeUnmount(() => {
       :back-to="backTo"
     />
   </div>
-
-  <v-dialog v-model="showScriptDialog" max-width="460">
-    <v-card title="Allow scripts in emails?" rounded="xl">
-      <v-card-text>
-        Scripts in emails can track when you open them and load content from unknown servers. They
-        run isolated from the app and can't access your account or other emails. This applies to
-        every email until you turn it off, close the tab or log out.
-      </v-card-text>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="showScriptDialog = false">Ακύρωση</v-btn>
-        <v-btn color="warning" variant="flat" @click="enableScripts">Να επιτραπούν scripts</v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
 </template>
 
 <style scoped>
