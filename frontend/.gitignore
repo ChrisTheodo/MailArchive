@@ -40,7 +40,3 @@ __screenshots__/
 
 test-results/
 playwright-report/
-
-# Import attachments
-**/storage/
-seed-storage/
