@@ -11,3 +11,8 @@ dist/
 build/
 .env
 .vs/
+
+
+# Import attachments
+**/storage/
+seed-storage/

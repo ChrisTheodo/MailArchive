@@ -30,11 +30,11 @@ const frameHeight = ref(0)
 // Root element of the email document, observed for size changes
 const frameRoot = ref<HTMLElement | null>(null)
 
-const backTo = computed(() => ({
-  name: 'mailbox',
-  params: { mailbox: props.mailbox },
-  query: route.query, // back to the same page of the list
-}))
+const backTo = computed(() =>
+  route.query.q
+    ? { name: 'search', query: route.query }
+    : { name: 'mailbox', params: { mailbox: props.mailbox }, query: route.query },
+)
 
 const senderLabel = computed(() => email.value?.senderName || email.value?.senderEmail || '')
 const senderInitial = computed(() => (senderLabel.value.charAt(0) || '?').toUpperCase())
@@ -229,8 +229,8 @@ watch(
 
     <NotFound404
       v-else-if="!isLoading"
-      title="Email not found"
-      message="This email doesn't exist or you don't have access to it."
+      title="Δεν βρέθηκε email"
+      message="Αυτό το email δεν υπάρχει η δεν έχετε πρόσβαση σε αυτό"
       icon="i-mdi-email-remove-outline"
       :back-to="backTo"
     />

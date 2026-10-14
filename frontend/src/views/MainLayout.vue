@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import toolboxLogo from '@/assets/toolbox-logo.svg'
 import { getSidebarRailWidth, SIDEBAR_DENSITY } from '@/constants/layout/app-side-bar'
 import { useDisplay } from 'vuetify'
+import { useEmailStore } from '@/stores/email'
+import { useRoute, useRouter } from 'vue-router'
+
+// CONSTANTS
+const emailStore = useEmailStore()
+const route = useRoute()
+const router = useRouter()
+const SEARCH_DEBOUNCE_MS = 400
 
 // STATE
+
 const drawer = ref<boolean | null>(true)
 const rail = ref(false)
 const aiSearchActive = ref(false)
 const { mobile } = useDisplay()
 const isHovering = ref(false)
 const sidebarExpanded = computed(() => !rail.value || isHovering.value)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let pageBeforeSearch: string | null = null
 
 // FUNCTIONS
 function toggleSidebar() {
@@ -25,6 +36,51 @@ function toggleSidebar() {
 function toggleAISearchMode() {
   aiSearchActive.value = !aiSearchActive.value
 }
+
+function submitSearch() {
+  clearTimeout(searchTimer)
+  const q = emailStore.search.trim()
+  const onSearchPage = route.name === 'search'
+
+  if (!q) {
+    if (onSearchPage) router.push(pageBeforeSearch ?? { name: 'home' })
+    return
+  }
+  if (onSearchPage && route.query.q === q) return
+
+  const location = { name: 'search', query: { q } }
+  if (onSearchPage) {
+    router.replace(location)
+    return
+  }
+
+  if (route.query.q === undefined) pageBeforeSearch = route.fullPath
+  router.push(location)
+}
+
+function onSearchInput(value: string | null) {
+  emailStore.search = value ?? ''
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(submitSearch, SEARCH_DEBOUNCE_MS)
+}
+
+function onSearchClear() {
+  emailStore.search = ''
+  submitSearch()
+}
+
+// WATCHERS
+watch(
+  () => route.query.q,
+  (q) => {
+    if (typeof q === 'string') {
+      if (q !== emailStore.search.trim()) emailStore.search = q
+    } else if (route.name !== 'search') emailStore.search = ''
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
 
 <template>
@@ -42,6 +98,7 @@ function toggleAISearchMode() {
     <v-app-bar-title>
       <v-text-field
         class="search"
+        :model-value="emailStore.search"
         :placeholder="aiSearchActive ? 'Αναζήτηση με AI' : 'Αναζήτηση email'"
         :prepend-inner-icon="aiSearchActive ? 'i-mdi-face-agent' : 'i-mdi-magnify'"
         variant="outlined"
@@ -51,6 +108,9 @@ function toggleAISearchMode() {
         hide-details
         clearable
         bg-color="surface"
+        @update:model-value="onSearchInput"
+        @keydown.enter="submitSearch"
+        @click:clear="onSearchClear"
       >
         <template #append>
           <v-icon-btn

@@ -42,25 +42,26 @@ onBeforeMount(() => userStore.fetchMe())
 </script>
 
 <template>
-  <v-list-item
-    density="compact"
-    variant="text"
-    :class="['flex-0-0']"
-    rounded="md"
-    :title="expanded ? (userStore.currentUser?.displayName ?? 'Όνομα χρήστη') : undefined"
-    :subtitle="expanded ? (userStore.currentUser?.email ?? 'Email χρήστη') : undefined"
-    lines="one"
-  >
-    <v-tooltip activator="parent" location="end" open-delay="300">
-      <div class="font-weight-medium">
-        {{ userStore.currentUser?.displayName ?? 'Όνομα χρήστη' }}
-      </div>
-      <div class="text-caption">{{ userStore.currentUser?.email ?? 'Email χρήστη' }}</div>
-    </v-tooltip>
-
+  <v-list-item density="compact" variant="text" :class="['flex-0-0']" rounded="md" lines="one">
     <template #prepend>
       <v-avatar :text="avatarText" color="primary" density="compact" />
     </template>
+
+    <v-list-item-title v-if="expanded">
+      {{ userStore.currentUser?.displayName ?? 'Όνομα χρήστη' }}
+      <v-tooltip activator="parent" location="end" open-delay="150">
+        <div class="font-weight-medium">
+          {{ userStore.currentUser?.displayName ?? 'Όνομα χρήστη' }}
+        </div>
+      </v-tooltip>
+    </v-list-item-title>
+
+    <v-list-item-subtitle v-if="expanded">
+      {{ userStore.currentUser?.email ?? 'Email χρήστη' }}
+      <v-tooltip activator="parent" location="end" open-delay="150">
+        <div class="font-weight-medium">{{ userStore.currentUser?.email ?? 'Email χρήστη' }}</div>
+      </v-tooltip>
+    </v-list-item-subtitle>
 
     <template v-if="expanded" #append>
       <v-btn
