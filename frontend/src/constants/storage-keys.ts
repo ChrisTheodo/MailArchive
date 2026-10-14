@@ -2,5 +2,6 @@ export const STORAGE_KEYS = {
   accessToken: 'accessToken',
   tokenType: 'tokenType',
   refreshToken: 'refreshToken',
-  allowEmailScripts: 'allowEmailScripts',
+  refreshTokenExpiresAt: 'refreshTokenExpiresAt',
+  accessTokenExpiresAt: 'accessTokenExpiresAt',
 } as const

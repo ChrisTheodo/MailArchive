@@ -54,15 +54,25 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
-  const { isAuthenticated } = useAuthStore()
-  if (to.meta.requiresAuth !== false && !isAuthenticated) {
+router.beforeEach(async (to) => {
+  const authStore = useAuthStore()
+  if (authStore.isAuthenticated) await authStore.ensureValidSession()
+
+  if (to.meta.requiresAuth !== false && !authStore.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  if (to.name === 'login' && isAuthenticated) {
+  if (to.name === 'login' && authStore.isAuthenticated) {
     return { name: 'home' }
   }
 })
+
+// sends the user to the login page, keeping the current page to return to after login
+export function redirectToLogin() {
+  const currentRoute = router.currentRoute.value
+  if (currentRoute.name === 'login') return
+
+  router.replace({ name: 'login', query: { redirect: currentRoute.fullPath } })
+}
 
 export default router
