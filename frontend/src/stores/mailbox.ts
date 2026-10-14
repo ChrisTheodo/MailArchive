@@ -59,6 +59,12 @@ export const useMailboxStore = defineStore('mailbox', () => {
     return mailbox
   }
 
+  // Keeps the sidebar count right after an email is deleted, without refetching
+  function decrementTotalEmails(mailboxId: string) {
+    const mailbox = getMailboxById(mailboxId)
+    if (mailbox) mailbox.totalEmails = Math.max(0, mailbox.totalEmails - 1)
+  }
+
   async function createMailbox(request: MyMailboxCreateRequest) {
     const res = await createRequest.execute(API_URLS.me.meMailboxes.post, { requestBody: request })
     if (!res) {
@@ -117,5 +123,6 @@ export const useMailboxStore = defineStore('mailbox', () => {
     getMailboxById,
     deleteMailbox,
     $reset,
+    decrementTotalEmails,
   }
 })

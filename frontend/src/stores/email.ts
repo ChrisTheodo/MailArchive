@@ -10,6 +10,7 @@ import type { EmailAttachmentResponse } from '@/types/emails/email-attachment-re
 import { useDeleteRequest } from '@/composables/useDeleteRequest'
 import type { DeleteEmailRequest } from '@/types/emails/delete-email-request'
 import { useSnackbarMessagesStore } from './snackbar-messages'
+import { useMailboxStore } from './mailbox'
 
 type EmailQuery = Partial<EmailQueryParameters>
 
@@ -21,6 +22,7 @@ export const useEmailStore = defineStore('email', () => {
 
   // CONSTANTS
   const snackbarMessagesStore = useSnackbarMessagesStore()
+  const mailboxStore = useMailboxStore()
   const listRequest = useGetRequest<PagedResult<EmailListResponse>>()
   const searchRequest = useGetRequest<PagedResult<EmailListResponse>>()
   const detailsRequest = useGetRequest<EmailDetailsResponse>()
@@ -75,10 +77,17 @@ export const useEmailStore = defineStore('email', () => {
       return false
     }
 
+    const mailboxId = findMailboxId(request.id)
+    if (mailboxId) mailboxStore.decrementTotalEmails(mailboxId)
     emails.value = withoutEmail(emails.value, request.id)
     emailsFromSearch.value = withoutEmail(emailsFromSearch.value, request.id)
     snackbarMessagesStore.addSuccessMessage('Το email διαγράφηκε')
     return true
+  }
+
+  function findMailboxId(emailId: string) {
+    const all = [...(emails.value?.items ?? []), ...(emailsFromSearch.value?.items ?? [])]
+    return all.find((e) => e.id === emailId)?.mailboxId ?? null
   }
 
   function withoutEmail(page: PagedResult<EmailListResponse> | null, emailId: string) {
