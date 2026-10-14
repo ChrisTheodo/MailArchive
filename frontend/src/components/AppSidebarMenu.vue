@@ -44,7 +44,11 @@ onBeforeMount(() => userStore.fetchMe())
 <template>
   <v-list-item density="compact" variant="text" :class="['flex-0-0']" rounded="md" lines="one">
     <template #prepend>
-      <v-avatar :text="avatarText" color="primary" density="compact" />
+      <v-avatar color="primary">
+        <span :class="['text-headline-small', { 'text-label-small': !expanded }]">{{
+          avatarText
+        }}</span>
+      </v-avatar>
     </template>
 
     <v-list-item-title v-if="expanded">
