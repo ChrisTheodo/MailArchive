@@ -19,7 +19,7 @@ export const API_URLS = {
   },
   auth: {
     login: `${API_BASE_URL}/api/auth/login`,
-    refresh: `${API_BASE_URL}/api/refresh`,
+    refresh: `${API_BASE_URL}/api/auth/refresh`,
     refreshRevoke: `${API_BASE_URL}/api/refresh/revoke`,
     logout: `${API_BASE_URL}/api/auth/logout`,
   },
