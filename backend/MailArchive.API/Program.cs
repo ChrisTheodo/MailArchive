@@ -148,6 +148,9 @@ builder.Services.AddHostedService<QueuedHostedService>();
 
 var app = builder.Build();
 
+if (await TestEmailSeederCommand.TryRunAsync(app.Services, args, app.Environment.ContentRootPath))
+    return;
+
 app.UseMiddleware<ExceptionMiddleware>();
 
 using (var scope = app.Services.CreateScope())
