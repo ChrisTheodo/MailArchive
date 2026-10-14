@@ -32,6 +32,11 @@ const routes = [
         name: 'dashboard',
         component: () => import('@/views/DashboardView.vue'),
       },
+      {
+        path: 'search',
+        name: 'search',
+        component: EmailList,
+      },
       { path: 'mail/:mailbox', name: 'mailbox', component: EmailList, props: true },
       {
         path: 'mail/:mailbox/:id',

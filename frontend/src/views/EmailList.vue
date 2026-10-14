@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEmailStore } from '@/stores/email'
 import { useMailboxStore } from '@/stores/mailbox'
@@ -14,18 +14,39 @@ const emailStore = useEmailStore()
 const mailboxStore = useMailboxStore()
 const route = useRoute()
 const router = useRouter()
-const PAGE_SIZE = 20
-const SEARCH_DEBOUNCE_MS = 300
+const DEFAULT_PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [
+  { title: '5', value: 5 },
+  { title: '10', value: 10 },
+  { title: '20', value: 20 },
+  { title: '50', value: 50 },
+  { title: '100', value: 100 },
+]
 
 // STATE
-let searchTimer: ReturnType<typeof setTimeout> | undefined
+const isSearch = computed(() => route.name === 'search')
+const searchQuery = computed(() => String(route.query.q ?? '').trim())
+const hasList = computed(() => isSearch.value || Boolean(props.mailbox))
+const result = computed(() => (isSearch.value ? emailStore.emailsFromSearch : emailStore.emails))
+const isLoading = computed(() =>
+  isSearch.value ? emailStore.isSearching : emailStore.isLoadingEmails,
+)
+const loadError = computed(() => (isSearch.value ? emailStore.searchError : emailStore.emailsError))
 
 const page = computed(() => Number(route.query.page) || 1)
-const items = computed(() => (props.mailbox ? (emailStore.emails?.items ?? []) : []))
-const totalCount = computed(() => emailStore.emails?.totalCount ?? 0)
-const totalPages = computed(() => Math.max(1, emailStore.emails?.totalPages ?? 1))
+const pageSize = computed(() => {
+  const size = Number(route.query.pageSize)
+  return PAGE_SIZE_OPTIONS.some((o) => o.value === size) ? size : DEFAULT_PAGE_SIZE
+})
+const items = computed(() => (hasList.value ? (result.value?.items ?? []) : []))
+const totalCount = computed(() => (hasList.value ? (result.value?.totalCount ?? 0) : 0))
+const effectivePageSize = computed(() => result.value?.pageSize || pageSize.value)
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(totalCount.value / effectivePageSize.value)),
+)
 
 const heading = computed(() => {
+  if (isSearch.value) return searchQuery.value ? `Αναζήτηση: "${searchQuery.value}"` : 'Αναζήτηση'
   if (!props.mailbox) return 'Mailboxes'
   return (
     mailboxStore.mailboxes.find((m) => m.mailboxId === props.mailbox)?.displayName ??
@@ -39,19 +60,28 @@ const emailToDelete = ref<EmailListResponse | null>(null)
 
 const rangeText = computed(() => {
   if (!totalCount.value) return ''
-  const from = (page.value - 1) * PAGE_SIZE + 1
-  const to = Math.min(page.value * PAGE_SIZE, totalCount.value)
+  const size = effectivePageSize.value || pageSize.value
+  const from = (page.value - 1) * size + 1
+  const to = Math.min(page.value * size, totalCount.value)
   return `${from}–${to} of ${totalCount.value}`
 })
 
 // METHODS
 function load() {
-  if (!props.mailbox) return
-  emailStore.fetchEmails(props.mailbox, {
-    page: page.value,
-    pageSize: PAGE_SIZE,
-    search: emailStore.search || undefined,
-  })
+  const query = { page: page.value, pageSize: pageSize.value }
+
+  if (isSearch.value) {
+    if (searchQuery.value) emailStore.searchEmails(searchQuery.value, query)
+    else emailStore.clearSearch()
+    return
+  }
+
+  if (props.mailbox) emailStore.fetchEmails(props.mailbox, query)
+}
+
+function changePageSize(size: number) {
+  const value = size === DEFAULT_PAGE_SIZE ? undefined : String(size)
+  router.push({ query: { ...route.query, page: undefined, pageSize: value } })
 }
 
 function goToPage(p: number) {
@@ -107,20 +137,8 @@ async function confirmDeleteEmail() {
 }
 
 // WATCHERS
-watch([() => props.mailbox, page], load, { immediate: true })
+watch([() => props.mailbox, page, isSearch, searchQuery, pageSize], load, { immediate: true })
 
-// A new search starts at page 1, after the user stops typing
-watch(
-  () => emailStore.search,
-  () => {
-    clearTimeout(searchTimer)
-    searchTimer = setTimeout(() => (page.value === 1 ? load() : goToPage(1)), SEARCH_DEBOUNCE_MS)
-  },
-)
-
-onBeforeUnmount(() => clearTimeout(searchTimer))
-
-// Mailbox names for the heading, e.g. when opening a link directly
 if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
 </script>
 
@@ -128,30 +146,51 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
   <div class="toolbar">
     <span class="heading">{{ heading }}</span>
     <v-spacer />
-    <template v-if="mailbox">
+    <template v-if="hasList">
       <span class="text-medium-emphasis small">{{ rangeText }}</span>
-      <v-btn
-        icon="i-mdi-chevron-left"
-        variant="text"
-        size="small"
-        title="Newer"
-        :disabled="page <= 1 || emailStore.isLoadingEmails"
-        @click="goToPage(page - 1)"
-      />
-      <v-btn
-        icon="i-mdi-chevron-right"
-        variant="text"
-        size="small"
-        title="Older"
-        :disabled="page >= totalPages || emailStore.isLoadingEmails"
-        @click="goToPage(page + 1)"
-      />
+      <template v-if="totalCount">
+        <v-pagination
+          :model-value="page"
+          :length="totalPages"
+          :total-visible="5"
+          :disabled="isLoading"
+          density="comfortable"
+          size="small"
+          @update:model-value="goToPage"
+          class="mx-2"
+        >
+          <template #next="{ onClick, disabled }">
+            <v-icon icon="i-mdi-chevron-right" size="small" :disabled="disabled" @click="onClick" />
+            <v-tooltip activator="parent" location="top center" text="Επόμενη σελίδα" />
+          </template>
+          <template #prev="{ onClick, disabled }">
+            <v-icon icon="i-mdi-chevron-left" size="small" :disabled="disabled" @click="onClick" />
+            <v-tooltip activator="parent" location="top center" text="Προηγούμενη σελίδα" />
+          </template>
+        </v-pagination>
+        <v-tooltip text="Ανά σελίδα" location="top center">
+          <template #activator="{ props: tooltipProps }">
+            <v-select
+              v-bind="tooltipProps"
+              :model-value="pageSize"
+              :items="PAGE_SIZE_OPTIONS"
+              :disabled="isLoading"
+              label="Ανά σελίδα"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="flex-0-0"
+              @update:model-value="changePageSize"
+            />
+          </template>
+        </v-tooltip>
+      </template>
       <v-btn
         icon="i-mdi-refresh"
         variant="text"
         size="small"
         title="Refresh"
-        :disabled="emailStore.isLoadingEmails"
+        :disabled="isLoading"
         @click="load"
       />
     </template>
@@ -161,16 +200,21 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
   <v-data-iterator
     :items="items"
     :items-per-page="-1"
-    :loading="emailStore.isLoadingEmails"
+    :loading="isLoading"
     item-value="id"
     class="scroll scrollbar"
   >
+    <template #header> </template>
+
     <template #default="{ items: rows }">
       <v-list class="py-0" lines="one">
         <template v-for="{ raw: item } in rows" :key="item.id">
           <v-list-item class="mail-row" @click="open(item)">
             <div class="row-body">
               <span class="sender">{{ senderOf(item) }}</span>
+              <v-chip v-if="isSearch" size="x-small" label class="flex-0-0">
+                {{ item.mailboxDisplayName }}
+              </v-chip>
               <span class="preview">
                 <span class="subject">{{ item.subject || '(χωρίς θέμα)' }}</span>
                 <span v-if="item.searchSnippet" class="text-medium-emphasis">
@@ -212,12 +256,17 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
 
     <template #no-data>
       <div class="empty text-medium-emphasis">
-        <template v-if="!mailbox">
+        <template v-if="!hasList">
           <v-icon icon="i-mdi-inbox-outline" size="48" class="mb-2" />
           <div>Δεν υπάρχουν ακόμα mailboxes</div>
         </template>
 
-        <template v-else-if="emailStore.emailsError">
+        <template v-else-if="isSearch && !searchQuery">
+          <v-icon icon="i-mdi-magnify" size="48" class="mb-2" />
+          <div>Γράψτε κάτι στην αναζήτηση</div>
+        </template>
+
+        <template v-else-if="loadError">
           <v-icon icon="i-mdi-alert-circle-outline" size="48" class="mb-2" />
           <div>Τα email δεν μπορούν να φορτωθούν</div>
           <v-btn variant="text" class="mt-2" @click="load">Προσπαθήστε ξανά</v-btn>
@@ -227,7 +276,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           <v-icon icon="i-mdi-email-open-outline" size="48" class="mb-2" />
           <div>
             {{
-              emailStore.search
+              isSearch
                 ? 'Δεν υπάρχει email που να ταιριάζει στην αναζήτηση σας'
                 : 'Δεν υπάρχει κάτι εδώ'
             }}
@@ -274,6 +323,10 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
 .scroll {
   flex: 1;
   overflow-y: auto;
+}
+
+.page-size {
+  flex: 0 0 auto;
 }
 
 .mail-row {

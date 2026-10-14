@@ -141,7 +141,7 @@ export const useImportStore = defineStore('import', () => {
 
   function isImportPending(importId: string) {
     const item = imports.value.find((i) => i.id === importId)
-    return !!item && !item.isCompleted
+    return item !== undefined && !item.isCompleted
   }
 
   function areImportsUnderway() {
