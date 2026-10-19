@@ -11,10 +11,6 @@ using XstReader;
 
 namespace MailArchive.Application.Imports.Parsing;
 
-/// <summary>
-/// Συγκεντρώνει ό,τι παραλείφθηκε ή δεν μπόρεσε να διαβαστεί κατά το parse,
-/// ώστε το import να μην χάνει δεδομένα σιωπηλά.
-/// </summary>
 public sealed class PstParseReport
 {
     private const int MaxWarnings = 500;
@@ -40,13 +36,11 @@ public sealed class PstParseReport
 
 public class XstReaderPstParser : IPstParser
 {
-    /// <summary>Μέγιστο μέγεθος συνημμένου που φορτώνεται σε byte[] (το ParsedPstAttachment κρατά bytes).</summary>
     private const long MaxAttachmentBytes = 100L * 1024 * 1024;
 
     private const int MaxFolderDepth = 256;
     private const int MaxFileNameLength = 120;
 
-    /// <summary>Κωδικοσελίδα όταν ένα σώμα δεν είναι έγκυρο UTF-8 και δεν δηλώνει δική του (1253 = Ελληνικά).</summary>
     private const int FallbackCodePage = 1253;
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(2);
@@ -106,18 +100,10 @@ public class XstReaderPstParser : IPstParser
 
     static XstReaderPstParser()
     {
-        // Απαραίτητο για κωδικοσελίδες όπως windows-1253 (ελληνικά) σε .NET Core / .NET 5+.
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
 
-    // ------------------------------------------------------------------
-    // Δημόσιο API
-    // ------------------------------------------------------------------
 
-    /// <summary>
-    /// Συμβατό με το IPstParser: συγκεντρώνει όλα τα μηνύματα στη μνήμη.
-    /// Για μεγάλα PST προτιμήστε το <see cref="ParseStreamingAsync"/>.
-    /// </summary>
     public async Task<IReadOnlyCollection<ParsedPstEmail>> ParseAsync(
         string pstFilePath,
         CancellationToken cancellationToken = default)
@@ -133,11 +119,7 @@ public class XstReaderPstParser : IPstParser
         return emails;
     }
 
-    /// <summary>
-    /// Διαβάζει το PST και καλεί το <paramref name="onEmail"/> για κάθε μήνυμα,
-    /// χωρίς να κρατά όλο το αρχείο στη μνήμη. Τρέχει σε thread του pool.
-    /// Σφάλματα του callback ΔΕΝ καταπίνονται (διαφέρουν από σφάλματα parsing).
-    /// </summary>
+
     public Task ParseStreamingAsync(
         string pstFilePath,
         Action<ParsedPstEmail> onEmail,
@@ -161,9 +143,7 @@ public class XstReaderPstParser : IPstParser
             cancellationToken);
     }
 
-    // ------------------------------------------------------------------
-    // Πυρήνας parsing
-    // ------------------------------------------------------------------
+
 
     private sealed class ParseContext
     {
@@ -232,7 +212,6 @@ public class XstReaderPstParser : IPstParser
         }
         finally
         {
-            // Απελευθερώνει το file handle του PST.
             (xstFile as IDisposable)?.Dispose();
 
             TryDeleteDirectory(tempDirectory);
@@ -241,14 +220,12 @@ public class XstReaderPstParser : IPstParser
 
     private static IEnumerable<XstFolder> ResolveRootFolders(XstFile xstFile)
     {
-        // Η ReadMessages()/ReadMessageDetails() δεν υπάρχει σε αυτή την έκδοση.
         if (GetObject(xstFile, "RootFolder") is XstFolder rootFolder)
         {
             yield return rootFolder;
             yield break;
         }
 
-        // Άλλες εκδόσεις εκθέτουν το δέντρο μέσω ReadFolderTree().
         var readFolderTree = xstFile.GetType().GetMethod(
             "ReadFolderTree",
             BindingFlags.Instance | BindingFlags.Public,
@@ -287,7 +264,6 @@ public class XstReaderPstParser : IPstParser
             CleanNullable(GetString(folder, "DisplayName")) ??
             "Folder";
 
-        // Το "/" μέσα σε όνομα φακέλου θα έκανε τη διαδρομή διφορούμενη.
         folderName = folderName.Replace('/', '_');
 
         var folderPath = string.IsNullOrWhiteSpace(parentPath)
@@ -334,13 +310,11 @@ public class XstReaderPstParser : IPstParser
                 }
                 catch (Exception ex)
                 {
-                    // Ένα κατεστραμμένο μήνυμα δεν πρέπει να ρίχνει όλο το PST.
                     ctx.Report.MessagesSkipped++;
                     ctx.Report.Warn($"Message in '{folderPath}' skipped: {ex.Message}");
                     continue;
                 }
 
-                // Έξω από το try: σφάλμα αποθήκευσης δεν είναι "κατεστραμμένο μήνυμα".
                 ctx.OnEmail(email);
                 ctx.Report.MessagesParsed++;
             }
@@ -361,9 +335,7 @@ public class XstReaderPstParser : IPstParser
         }
     }
 
-    // ------------------------------------------------------------------
-    // Χαρτογράφηση μηνύματος
-    // ------------------------------------------------------------------
+
 
     private static ParsedPstEmail MapMessage(
         XstMessage message,
@@ -457,7 +429,6 @@ public class XstReaderPstParser : IPstParser
         if (email != null)
             return email;
 
-        // Σε PST από Exchange ο αποστολέας είναι συχνά διεύθυνση X.500 (/O=...), όχι SMTP.
         ctx.Report.SendersUnresolved++;
 
         var raw =
@@ -471,9 +442,7 @@ public class XstReaderPstParser : IPstParser
         return "unknown@unknown.local";
     }
 
-    /// <summary>
-    /// Σταθερό ID όταν λείπει το Message-ID: ίδιο μήνυμα => ίδιο ID σε κάθε import (ώστε να δουλεύει το dedup).
-    /// </summary>
+
     private static string BuildStableMessageId(
         string senderEmail,
         string subject,
@@ -496,19 +465,15 @@ public class XstReaderPstParser : IPstParser
         return $"<{Convert.ToHexString(hash)[..32].ToLowerInvariant()}@pst-hash.local>";
     }
 
-    // ------------------------------------------------------------------
-    // Σώμα μηνύματος
-    // ------------------------------------------------------------------
+
 
     private static BodyExtractionResult ExtractBody(XstMessage message)
     {
         string? bodyText = null;
         string? bodyHtml = null;
 
-        // 1. Ρητό BodyHtml.
         bodyHtml = ExtractStringValue(GetPropertyValue(message, "BodyHtml"));
 
-        // 2. Body (string ή αντικείμενο με Text/Bytes/NativeBody).
         var bodyObject = GetPropertyValue(message, "Body");
 
         if (bodyObject != null)
@@ -536,7 +501,6 @@ public class XstReaderPstParser : IPstParser
             }
         }
 
-        // 3. Άμεσο BodyText.
         if (string.IsNullOrWhiteSpace(bodyText) && string.IsNullOrWhiteSpace(bodyHtml))
         {
             var directText = GetString(message, "BodyText");
@@ -545,7 +509,6 @@ public class XstReaderPstParser : IPstParser
                 bodyText = NormalizeBodyText(directText);
         }
 
-        // 4. Fallback από τη λίστα ιδιοτήτων.
         if (string.IsNullOrWhiteSpace(bodyText) && string.IsNullOrWhiteSpace(bodyHtml))
         {
             var propertyBody = ExtractStringValue(GetPropertyFromBag(message, "Body"));
@@ -554,7 +517,6 @@ public class XstReaderPstParser : IPstParser
                 AssignBody(propertyBody, null, ref bodyText, ref bodyHtml);
         }
 
-        // Αν υπάρχει μόνο HTML, παράγουμε το plain text από αυτό.
         if (!string.IsNullOrWhiteSpace(bodyHtml) && string.IsNullOrWhiteSpace(bodyText))
             bodyText = NormalizeBodyText(StripHtml(bodyHtml));
 
@@ -571,7 +533,6 @@ public class XstReaderPstParser : IPstParser
         {
             var rtf = ConvertRtf(content);
 
-            // RTF με ενσωματωμένο HTML (\fromhtml): κρατάμε και το HTML.
             if (!string.IsNullOrWhiteSpace(rtf.Html))
                 bodyHtml = rtf.Html;
 
@@ -620,13 +581,11 @@ public class XstReaderPstParser : IPstParser
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
 
-        // UTF-16LE χωρίς BOM: πολλά μηδενικά σε περιττές θέσεις.
         if (LooksLikeUtf16Le(bytes))
             return Encoding.Unicode.GetString(bytes);
 
         try
         {
-            // Αυστηρό UTF-8: αν είναι άκυρο, ΔΕΝ γεμίζουμε με '�', πέφτουμε σε κωδικοσελίδα.
             return StrictUtf8.GetString(bytes);
         }
         catch (DecoderFallbackException)
@@ -693,9 +652,6 @@ public class XstReaderPstParser : IPstParser
         }
     }
 
-    // ------------------------------------------------------------------
-    // Παραλήπτες
-    // ------------------------------------------------------------------
 
     private static IReadOnlyCollection<ParsedPstRecipient> MapRecipients(
         object? recipientsObject,
@@ -726,7 +682,6 @@ public class XstReaderPstParser : IPstParser
 
             if (string.IsNullOrWhiteSpace(email))
             {
-                // Distribution list ή εσωτερική διεύθυνση Exchange χωρίς SMTP.
                 report.RecipientsWithoutEmail++;
                 continue;
             }
@@ -755,10 +710,7 @@ public class XstReaderPstParser : IPstParser
                GetStringFromProperties(recipientObject, "DisplayName");
     }
 
-    /// <summary>
-    /// Επιστρέφει την πρώτη τιμή που κανονικοποιείται σε πραγματικό email
-    /// (μια διεύθυνση X.500 δεν «κλειδώνει» την αλυσίδα, δοκιμάζεται η επόμενη).
-    /// </summary>
+
     private static string? FirstEmail(object? source, params string[] propertyNames)
     {
         if (source == null)
@@ -783,9 +735,7 @@ public class XstReaderPstParser : IPstParser
         return null;
     }
 
-    // ------------------------------------------------------------------
-    // Συνημμένα
-    // ------------------------------------------------------------------
+
 
     private static IReadOnlyCollection<ParsedPstAttachment> MapAttachments(
         object message,
@@ -804,7 +754,6 @@ public class XstReaderPstParser : IPstParser
             {
                 if (!GetBool(attachmentObject, "IsFile"))
                 {
-                    // Ενσωματωμένα μηνύματα / OLE: δεν υποστηρίζονται ακόμα, αλλά καταγράφονται.
                     ctx.Report.AttachmentsSkipped++;
                     ctx.Report.Warn($"Non-file attachment skipped in '{folderPath}'.");
                     continue;
@@ -820,7 +769,6 @@ public class XstReaderPstParser : IPstParser
 
                 Directory.CreateDirectory(ctx.TempDirectory);
 
-                // Το temp όνομα είναι μοναδικό και κοντό, ανεξάρτητα από το πραγματικό όνομα.
                 tempFilePath = Path.Combine(
                     ctx.TempDirectory,
                     $"{++ctx.AttachmentCounter}{Path.GetExtension(safeFileName)}");
@@ -918,11 +866,9 @@ public class XstReaderPstParser : IPstParser
             }
             catch (TargetInvocationException)
             {
-                // Δοκιμάζουμε την επόμενη υπερφόρτωση.
             }
         }
 
-        // 2. Νεότερες εκδόσεις: XstFile.SaveAttachment(attachment, path)
         var fileMethod = xstFile
             .GetType()
             .GetMethods(BindingFlags.Instance | BindingFlags.Public)
@@ -974,9 +920,7 @@ public class XstReaderPstParser : IPstParser
         return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
 
-    // ------------------------------------------------------------------
-    // Reflection helpers (με cache)
-    // ------------------------------------------------------------------
+
 
     private static IEnumerable<object> GetEnumerable(object? source, string propertyName)
     {
@@ -1074,7 +1018,6 @@ public class XstReaderPstParser : IPstParser
     private static DateTime? GetDateTimeFromProperties(object? source, string propertyName) =>
         ValueToDateTime(GetPropertyFromBag(source, propertyName));
 
-    /// <summary>Ψάχνει μια ιδιότητα στη γενική λίστα "Properties" του αντικειμένου.</summary>
     private static object? GetPropertyFromBag(object? source, string propertyName)
     {
         var bag = GetPropertyValue(source, "Properties");
@@ -1132,9 +1075,7 @@ public class XstReaderPstParser : IPstParser
         }
     }
 
-    // ------------------------------------------------------------------
-    // Μετατροπές τιμών
-    // ------------------------------------------------------------------
+
 
     private static string? ValueToString(object? value)
     {
@@ -1145,7 +1086,6 @@ public class XstReaderPstParser : IPstParser
             string text => text.Trim(),
             DateTime dateTime => dateTime.ToString("O", CultureInfo.InvariantCulture),
             DateTimeOffset offset => offset.ToString("O", CultureInfo.InvariantCulture),
-            // Ένα byte[] ΔΕΝ είναι κείμενο: δεν το μετατρέπουμε σε Base64 "σώμα".
             byte[] => null,
             _ => SafeToString(value)
         };
@@ -1161,7 +1101,6 @@ public class XstReaderPstParser : IPstParser
         var type = value.GetType();
         var typeName = type.FullName ?? type.Name;
 
-        // Το προεπιλεγμένο ToString() επιστρέφει όνομα τύπου (και για generics).
         if (text == type.Name ||
             text.StartsWith(typeName, StringComparison.Ordinal) ||
             text.StartsWith(type.Name + "`", StringComparison.Ordinal))
@@ -1172,7 +1111,6 @@ public class XstReaderPstParser : IPstParser
         return text;
     }
 
-    /// <summary>Οι ώρες των PST αποθηκεύονται σε UTC (FILETIME), άρα το Unspecified θεωρείται UTC.</summary>
     private static DateTime? ValueToDateTime(object? value)
     {
         return value switch
@@ -1207,11 +1145,7 @@ public class XstReaderPstParser : IPstParser
         return match.Success ? match.Value.ToLowerInvariant() : null;
     }
 
-    // ------------------------------------------------------------------
-    // Κείμενο / HTML
-    // ------------------------------------------------------------------
 
-    /// <summary>Για μονόγραμμα πεδία (θέμα, ονόματα): όλα τα κενά γίνονται ένα κενό.</summary>
     private static string? CleanNullable(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1220,7 +1154,6 @@ public class XstReaderPstParser : IPstParser
         return InlineWhitespaceRegex.Replace(value, " ").Trim();
     }
 
-    /// <summary>Για σώμα: κρατά τις αλλαγές γραμμής και τις παραγράφους.</summary>
     private static string? CleanBody(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1256,7 +1189,6 @@ public class XstReaderPstParser : IPstParser
             return true;
         }
 
-        // Αναζήτηση γνωστών HTML tags (όχι απλά "</"), ώστε κώδικας/XML σε plain text να μη θεωρείται HTML.
         return HtmlMarkerRegex.IsMatch(body);
     }
 
@@ -1289,9 +1221,7 @@ public class XstReaderPstParser : IPstParser
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength] + "...";
 
-    // ------------------------------------------------------------------
-    // Ονόματα αρχείων / content types
-    // ------------------------------------------------------------------
+
 
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1349,9 +1279,6 @@ public class XstReaderPstParser : IPstParser
         };
     }
 
-    // ------------------------------------------------------------------
-    // Βοηθητικά αρχείων / σφαλμάτων
-    // ------------------------------------------------------------------
 
     private static string GetInnermostMessage(Exception exception)
     {
@@ -1372,7 +1299,6 @@ public class XstReaderPstParser : IPstParser
         }
         catch
         {
-            // Σφάλματα καθαρισμού temp αγνοούνται (ο φάκελος σβήνεται στο τέλος).
         }
     }
 
@@ -1417,20 +1343,16 @@ public class XstReaderPstParser : IPstParser
                 throw new InvalidDataException("InvalidPstFile: could not read PST/OST file header.");
         }
 
-        // dwMagic = "!BDN"
         if (header[0] != 0x21 || header[1] != 0x42 || header[2] != 0x44 || header[3] != 0x4E)
             throw new InvalidDataException("InvalidPstFile: missing PST/OST magic header.");
 
-        // wVer (offset 10): 14/15 = ANSI, 21/23 = Unicode, 36/37 = Unicode 4K.
         var version = BitConverter.ToUInt16(header, 10);
 
         if (version is not (14 or 15 or 17 or 21 or 23 or 36 or 37))
             throw new InvalidDataException($"InvalidPstFile: unsupported PST/OST version ({version}).");
     }
 
-    // ------------------------------------------------------------------
-    // RTF → κείμενο (με κωδικοσελίδες, \ucN και αποκωδικοποίηση \fromhtml)
-    // ------------------------------------------------------------------
+
 
     private static bool IsRtfBody(string? body)
     {
@@ -1512,7 +1434,6 @@ public class XstReaderPstParser : IPstParser
                 continue;
             }
 
-            // Οι φυσικές αλλαγές γραμμής μέσα στο RTF δεν είναι περιεχόμενο.
             if (c == '\r' || c == '\n')
                 continue;
 
@@ -1619,7 +1540,6 @@ public class XstReaderPstParser : IPstParser
                 continue;
             }
 
-            // Control word.
             FlushBytes();
 
             var wordStart = i + 1;
@@ -1640,7 +1560,6 @@ public class XstReaderPstParser : IPstParser
 
             var parameter = rtf[parameterStart..cursor];
 
-            // Ένα κενό μετά το control word είναι διαχωριστικό και καταναλώνεται.
             i = cursor < rtf.Length && rtf[cursor] == ' ' ? cursor : cursor - 1;
 
             if (pendingStar)
