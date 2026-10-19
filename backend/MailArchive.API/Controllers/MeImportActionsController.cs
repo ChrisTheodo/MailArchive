@@ -233,30 +233,42 @@ public class MeImportActionsController : ControllerBase
                     entityType: "ImportBatch",
                     entityId: id);
             }
-            catch
+            catch (Exception ex)            //KODIKAS CLAUDE!!!!
             {
                 try
                 {
-                    var failedImport = await scopedDb.ImportBatches
+                    // The processor's DbContext still tracks the changes that just failed,
+                    // so record the failure through a fresh scope.
+                    using var failureScope = _serviceScopeFactory.CreateScope();
+
+                    var failureDb = failureScope.ServiceProvider.GetRequiredService<IMailArchiveDbContext>();
+                    var failureAuditLogService = failureScope.ServiceProvider.GetRequiredService<IAuditLogService>();
+
+                    var failedImport = await failureDb.ImportBatches
                         .FirstOrDefaultAsync(x => x.Id == id);
 
                     if (failedImport != null)
                     {
+                        var errorMessage = $"Unexpected background import failure: {ex.GetBaseException().Message}";
+
+                        if (errorMessage.Length > 2000)
+                            errorMessage = errorMessage[..2000];
+
                         failedImport.Status = ImportBatchStatus.Failed;
                         failedImport.CompletedAt = DateTime.UtcNow;
                         failedImport.FailedMessages = Math.Max(failedImport.FailedMessages, 1);
 
-                        scopedDb.ImportErrors.Add(new ImportError
+                        failureDb.ImportErrors.Add(new ImportError
                         {
                             Id = Guid.NewGuid(),
                             ImportBatchId = failedImport.Id,
-                            Message = "Unexpected background import failure.",
+                            Message = errorMessage,
                             CreatedAt = DateTime.UtcNow
                         });
 
-                        await scopedDb.SaveChangesAsync();
+                        await failureDb.SaveChangesAsync();
 
-                        await scopedAuditLogService.LogAsync(
+                        await failureAuditLogService.LogAsync(
                             action: "MyImportBackgroundFailed",
                             entityType: "ImportBatch",
                             entityId: id);
