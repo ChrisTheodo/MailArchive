@@ -473,7 +473,7 @@ namespace MailArchive.Persistence.Migrations
                     b.HasOne("MailArchive.Domain.Entities.Mailbox", "Mailbox")
                         .WithMany("Emails")
                         .HasForeignKey("MailboxId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("ImportBatch");
