@@ -43,12 +43,12 @@ public class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
         builder.HasOne(x => x.Mailbox)
             .WithMany()
             .HasForeignKey(x => x.MailboxId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasMany(x => x.Emails)
             .WithOne(x => x.ImportBatch)
             .HasForeignKey(x => x.ImportBatchId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasMany(x => x.ImportErrors)
             .WithOne(x => x.ImportBatch)

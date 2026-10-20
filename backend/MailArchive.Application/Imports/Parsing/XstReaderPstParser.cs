@@ -1,120 +1,208 @@
 using MailArchive.Domain.Enums;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using XstReader;
 
 namespace MailArchive.Application.Imports.Parsing;
 
+public sealed class PstParseReport
+{
+    private const int MaxWarnings = 500;
+
+    private readonly List<string> _warnings = new();
+
+    public IReadOnlyList<string> Warnings => _warnings;
+
+    public int FoldersVisited { get; internal set; }
+    public int MessagesParsed { get; internal set; }
+    public int MessagesSkipped { get; internal set; }
+    public int AttachmentsSaved { get; internal set; }
+    public int AttachmentsSkipped { get; internal set; }
+    public int SendersUnresolved { get; internal set; }
+    public int RecipientsWithoutEmail { get; internal set; }
+
+    internal void Warn(string message)
+    {
+        if (_warnings.Count < MaxWarnings)
+            _warnings.Add(message.Replace("\0", string.Empty));
+    }
+}
+
 public class XstReaderPstParser : IPstParser
 {
-    public Task<IReadOnlyCollection<ParsedPstEmail>> ParseAsync(
+    private const long MaxAttachmentBytes = 100L * 1024 * 1024;
+
+    private const int MaxFolderDepth = 256;
+    private const int MaxFileNameLength = 120;
+
+    private const int FallbackCodePage = 1253;
+
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(2);
+
+    private static readonly Regex EmailRegex =
+        new(@"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex InlineWhitespaceRegex =
+        new(@"\s+", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HorizontalWhitespaceRegex =
+        new(@"[ \t]+", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex SpacesAroundNewlineRegex =
+        new(@" ?\n ?", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex ManyNewlinesRegex =
+        new(@"\n{3,}", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex NonAlphanumericRegex =
+        new(@"[^a-zA-Z0-9]", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex ScriptRegex =
+        new(@"<script\b.*?</script\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex StyleRegex =
+        new(@"<style\b.*?</style\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HtmlCommentRegex =
+        new(@"<!--.*?-->", RegexOptions.Singleline | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HtmlBreakRegex =
+        new(@"<\s*br\s*/?\s*>|</\s*(p|div|tr|li|h[1-6]|table|blockquote)\s*>",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HtmlCellRegex =
+        new(@"</\s*t[dh]\s*>", RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HtmlTagRegex =
+        new(@"<[^>]+>", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex HtmlMarkerRegex =
+        new(@"<\s*(!doctype|html|head|body|div|p|br|span|table|tr|td|a|b|i|u|font|meta|img|ul|ol|li|h[1-6])\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex CharsetRegex =
+        new(@"charset\s*=\s*[""']?\s*([\w\-]+)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly Regex AnsiCodePageRegex =
+        new(@"\\ansicpg(\d+)", RegexOptions.Compiled, RegexTimeout);
+
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    private static readonly ConcurrentDictionary<(Type, string), Func<object, object?>?> GetterCache = new();
+
+    static XstReaderPstParser()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
+
+    public async Task<IReadOnlyCollection<ParsedPstEmail>> ParseAsync(
         string pstFilePath,
         CancellationToken cancellationToken = default)
     {
+        var emails = new List<ParsedPstEmail>();
+
+        await ParseStreamingAsync(
+            pstFilePath,
+            emails.Add,
+            report: null,
+            cancellationToken);
+
+        return emails;
+    }
+
+
+    public Task ParseStreamingAsync(
+        string pstFilePath,
+        Action<ParsedPstEmail> onEmail,
+        PstParseReport? report = null,
+        CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(pstFilePath))
-            throw new ArgumentException(
-                "PST file path is required.",
-                nameof(pstFilePath));
+            throw new ArgumentException("PST file path is required.", nameof(pstFilePath));
+
+        ArgumentNullException.ThrowIfNull(onEmail);
 
         if (!File.Exists(pstFilePath))
-            throw new FileNotFoundException(
-                "PST file was not found.",
-                pstFilePath);
+            throw new FileNotFoundException("PST file was not found.", pstFilePath);
 
         ValidatePstHeader(pstFilePath);
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        return Task.Run(
+            () => ParseCore(pstFilePath, onEmail, report ?? new PstParseReport(), cancellationToken),
+            cancellationToken);
+    }
+
+
+
+    private sealed class ParseContext
+    {
+        public ParseContext(
+            XstFile xst,
+            Action<ParsedPstEmail> onEmail,
+            PstParseReport report,
+            string tempDirectory,
+            CancellationToken cancellationToken)
+        {
+            Xst = xst;
+            OnEmail = onEmail;
+            Report = report;
+            TempDirectory = tempDirectory;
+            CancellationToken = cancellationToken;
+        }
+
+        public XstFile Xst { get; }
+        public Action<ParsedPstEmail> OnEmail { get; }
+        public PstParseReport Report { get; }
+        public string TempDirectory { get; }
+        public CancellationToken CancellationToken { get; }
+        public HashSet<object> VisitedFolders { get; } = new(ReferenceEqualityComparer.Instance);
+        public int AttachmentCounter { get; set; }
+    }
+
+    private static void ParseCore(
+        string pstFilePath,
+        Action<ParsedPstEmail> onEmail,
+        PstParseReport report,
+        CancellationToken cancellationToken)
+    {
+        var tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"mailarchive-pst-{Guid.NewGuid():N}");
+
+        XstFile? xstFile = null;
+
         try
         {
-            var parsedEmails =
-                new List<ParsedPstEmail>();
+            xstFile = new XstFile(pstFilePath);
 
-            var xstFile =
-                new XstFile(pstFilePath);
+            var context = new ParseContext(
+                xstFile,
+                onEmail,
+                report,
+                tempDirectory,
+                cancellationToken);
 
-            /*
-             * Do not use ReadMessages() or ReadMessageDetails().
-             *
-             * Those methods exist in some XstReader versions,
-             * but are not exposed by the XstReader version used
-             * by this project.
-             *
-             * The current API loads message data through the
-             * exposed folder/message properties.
-             */
-            var rootFolderObject =
-                GetObject(xstFile, "RootFolder");
-
-            if (rootFolderObject is XstFolder rootFolder)
+            foreach (var root in ResolveRootFolders(xstFile))
             {
-                TraverseFolder(
-                    folder: rootFolder,
-                    parentPath: string.Empty,
-                    parsedEmails: parsedEmails,
-                    cancellationToken: cancellationToken);
-            }
-            else
-            {
-                /*
-                 * Some XstReader versions expose the folder tree
-                 * through ReadFolderTree() instead of RootFolder.
-                 */
-                var readFolderTreeMethod =
-                    xstFile.GetType().GetMethod(
-                        "ReadFolderTree",
-                        BindingFlags.Instance |
-                        BindingFlags.Public);
-
-                if (readFolderTreeMethod == null)
-                {
-                    throw new InvalidOperationException(
-                        "XstReader does not expose a readable folder tree.");
-                }
-
-                var tree =
-                    readFolderTreeMethod.Invoke(
-                        xstFile,
-                        null);
-
-                if (tree is XstFolder rootTreeFolder)
-                {
-                    TraverseFolder(
-                        folder: rootTreeFolder,
-                        parentPath: string.Empty,
-                        parsedEmails: parsedEmails,
-                        cancellationToken: cancellationToken);
-                }
-                else
-                {
-                    /*
-                     * Handle the API where the returned root object
-                     * is not directly XstFolder.
-                     */
-                    foreach (var folderObject in GetEnumerable(
-                                 tree,
-                                 "Folders"))
-                    {
-                        if (folderObject is not XstFolder nestedFolder)
-                            continue;
-
-                        TraverseFolder(
-                            folder: nestedFolder,
-                            parentPath: string.Empty,
-                            parsedEmails: parsedEmails,
-                            cancellationToken: cancellationToken);
-                    }
-                }
+                TraverseFolder(root, string.Empty, 0, context);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-
-            return Task.FromResult<IReadOnlyCollection<ParsedPstEmail>>(
-                parsedEmails);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -122,101 +210,139 @@ public class XstReaderPstParser : IPstParser
                 $"XstReaderParsingFailed: {GetInnermostMessage(ex)}",
                 ex);
         }
+        finally
+        {
+            (xstFile as IDisposable)?.Dispose();
+
+            TryDeleteDirectory(tempDirectory);
+        }
+    }
+
+    private static IEnumerable<XstFolder> ResolveRootFolders(XstFile xstFile)
+    {
+        if (GetObject(xstFile, "RootFolder") is XstFolder rootFolder)
+        {
+            yield return rootFolder;
+            yield break;
+        }
+
+        var readFolderTree = xstFile.GetType().GetMethod(
+            "ReadFolderTree",
+            BindingFlags.Instance | BindingFlags.Public,
+            binder: null,
+            types: Type.EmptyTypes,
+            modifiers: null);
+
+        if (readFolderTree == null)
+            throw new InvalidOperationException("XstReader does not expose a readable folder tree.");
+
+        var tree = readFolderTree.Invoke(xstFile, null);
+
+        if (tree is XstFolder treeRoot)
+        {
+            yield return treeRoot;
+            yield break;
+        }
+
+        foreach (var child in GetEnumerable(tree, "Folders"))
+        {
+            if (child is XstFolder nested)
+                yield return nested;
+        }
     }
 
     private static void TraverseFolder(
         XstFolder folder,
         string parentPath,
-        List<ParsedPstEmail> parsedEmails,
-        CancellationToken cancellationToken)
+        int depth,
+        ParseContext ctx)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        ctx.CancellationToken.ThrowIfCancellationRequested();
 
         var folderName =
-            GetString(folder, "Name") ??
-            GetString(folder, "DisplayName") ??
+            CleanNullable(GetString(folder, "Name")) ??
+            CleanNullable(GetString(folder, "DisplayName")) ??
             "Folder";
 
-        var folderPath =
-            string.IsNullOrWhiteSpace(parentPath)
-                ? folderName
-                : $"{parentPath}/{folderName}";
+        folderName = folderName.Replace('/', '_');
 
-        /*
-         * IMPORTANT:
-         *
-         * Do NOT call XstFile.ReadMessages(folder) here.
-         *
-         * The installed XstReader version does not expose that method.
-         *
-         * Accessing folder.Messages causes the library to obtain the
-         * message collection through its normal API.
-         */
-        foreach (var messageObject in GetEnumerable(
-                     folder,
-                     "Messages"))
+        var folderPath = string.IsNullOrWhiteSpace(parentPath)
+            ? folderName
+            : $"{parentPath}/{folderName}";
+
+        if (depth > MaxFolderDepth)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            ctx.Report.Warn($"Folder '{folderPath}' skipped: maximum depth ({MaxFolderDepth}) exceeded.");
+            return;
+        }
 
-            try
+        if (!ctx.VisitedFolders.Add(folder))
+        {
+            ctx.Report.Warn($"Folder '{folderPath}' skipped: already visited (cycle).");
+            return;
+        }
+
+        ctx.Report.FoldersVisited++;
+
+        try
+        {
+            foreach (var messageObject in GetEnumerable(folder, "Messages"))
             {
-                if (messageObject is not XstMessage message)
-                {
-                    Console.WriteLine(
-                        $"[XstReaderPstParser] Unexpected message type in '{folderPath}': " +
-                        $"{messageObject.GetType().FullName}");
+                ctx.CancellationToken.ThrowIfCancellationRequested();
 
+                ParsedPstEmail email;
+
+                try
+                {
+                    if (messageObject is not XstMessage message)
+                    {
+                        ctx.Report.MessagesSkipped++;
+                        ctx.Report.Warn(
+                            $"Unexpected message type in '{folderPath}': {messageObject.GetType().FullName}");
+                        continue;
+                    }
+
+                    email = MapMessage(message, folderPath, ctx);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    ctx.Report.MessagesSkipped++;
+                    ctx.Report.Warn($"Message in '{folderPath}' skipped: {ex.Message}");
                     continue;
                 }
 
-                parsedEmails.Add(
-                    MapMessage(
-                        message,
-                        folderPath));
-            }
-            catch (Exception ex)
-            {
-                /*
-                 * One malformed message must not fail the whole PST.
-                 */
-                Console.WriteLine(
-                    $"[XstReaderPstParser] Message in '{folderPath}' skipped: " +
-                    $"{ex.Message}");
+                ctx.OnEmail(email);
+                ctx.Report.MessagesParsed++;
             }
         }
-
-        foreach (var childFolderObject in GetEnumerable(
-                     folder,
-                     "Folders"))
+        catch (OperationCanceledException)
         {
-            if (childFolderObject is not XstFolder childFolder)
-                continue;
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ctx.Report.Warn($"Reading messages of folder '{folderPath}' failed: {ex.Message}");
+        }
 
-            TraverseFolder(
-                folder: childFolder,
-                parentPath: folderPath,
-                parsedEmails: parsedEmails,
-                cancellationToken: cancellationToken);
+        foreach (var childObject in GetEnumerable(folder, "Folders"))
+        {
+            if (childObject is XstFolder child)
+                TraverseFolder(child, folderPath, depth + 1, ctx);
         }
     }
 
+
+
     private static ParsedPstEmail MapMessage(
         XstMessage message,
-        string folderPath)
+        string folderPath,
+        ParseContext ctx)
     {
-        /*
-         * Do NOT call:
-         *
-         * xstFile.ReadMessageDetails(message)
-         *
-         * because that method is not available in the installed
-         * XstReader version.
-         *
-         * The message properties are accessed directly below.
-         */
-
-        var recipientsObject =
-            GetObject(message, "Recipients");
+        var recipientsObject = GetObject(message, "Recipients");
 
         var senderObject =
             GetObject(recipientsObject, "Sender") ??
@@ -224,555 +350,323 @@ public class XstReaderPstParser : IPstParser
             GetObject(recipientsObject, "SentRepresenting") ??
             GetObject(message, "Sender");
 
-        var senderEmail =
-            NormalizeEmail(
-                GetRecipientEmail(senderObject)) ??
-            NormalizeEmail(
-                GetString(message, "SenderEmail")) ??
-            NormalizeEmail(
-                GetString(message, "SenderEmailAddress")) ??
-            NormalizeEmail(
-                GetString(message, "FromEmail")) ??
-            NormalizeEmail(
-                GetStringFromProperties(
-                    message,
-                    "SenderEmailAddress")) ??
-            NormalizeEmail(
-                GetStringFromProperties(
-                    message,
-                    "SenderEmail")) ??
-            "unknown@unknown.local";
-
         var senderName =
-            GetRecipientName(senderObject) ??
-            GetString(message, "SenderName") ??
-            GetString(message, "FromName") ??
-            GetStringFromProperties(
-                message,
-                "SenderName");
+            CleanNullable(
+                GetRecipientName(senderObject) ??
+                GetString(message, "SenderName") ??
+                GetString(message, "FromName") ??
+                GetStringFromProperties(message, "SenderName"));
 
         var subject =
-            GetString(message, "Subject") ??
-            GetStringFromProperties(
-                message,
-                "Subject") ??
+            CleanNullable(
+                GetString(message, "Subject") ??
+                GetStringFromProperties(message, "Subject")) ??
             "(No subject)";
 
-        var internetMessageId =
-            GetString(message, "InternetMessageId") ??
-            GetString(message, "InternetMessageID") ??
-            GetStringFromProperties(
-                message,
-                "InternetMessageId") ??
-            GetStringFromProperties(
-                message,
-                "InternetMessageID") ??
-            $"<{Guid.NewGuid():N}@xstreader.local>";
+        var senderEmail = ResolveSenderEmail(message, senderObject, ctx, folderPath, subject);
 
+        // Στάλθηκε: ώρα υποβολής. Η "Date" είναι τελευταία επιλογή γιατί μπορεί να είναι παραλαβή/τροποποίηση.
         var sentAt =
-            GetDateTime(message, "Date") ??
             GetDateTime(message, "SubmittedTime") ??
+            GetDateTime(message, "ClientSubmitTime") ??
             GetDateTime(message, "SentAt") ??
             GetDateTime(message, "SubmitTime") ??
-            GetDateTime(message, "ClientSubmitTime") ??
-            GetDateTime(message, "DeliveryTime") ??
-            GetDateTimeFromProperties(
-                message,
-                "ClientSubmitTime") ??
-            GetDateTimeFromProperties(
-                message,
-                "DeliveryTime");
+            GetDateTimeFromProperties(message, "ClientSubmitTime") ??
+            GetDateTime(message, "Date");
 
+        // Παραλήφθηκε: ώρα παράδοσης. Αν λείπει, πέφτουμε στο sentAt.
         var receivedAt =
             GetDateTime(message, "ReceivedTime") ??
             GetDateTime(message, "ReceivedAt") ??
             GetDateTime(message, "DeliveryTime") ??
-            GetDateTimeFromProperties(
-                message,
-                "DeliveryTime") ??
+            GetDateTimeFromProperties(message, "MessageDeliveryTime") ??
+            GetDateTimeFromProperties(message, "DeliveryTime") ??
             sentAt;
 
-        /*
-         * BODY
-         *
-         * Try the different body representations exposed by
-         * different XstReader versions.
-         */
-        var bodyResult =
-            ExtractBody(message);
+        var body = ExtractBody(message);
 
-        var recipients =
-            MapRecipients(recipientsObject);
+        var internetMessageId =
+            CleanNullable(
+                GetString(message, "InternetMessageId") ??
+                GetString(message, "InternetMessageID") ??
+                GetStringFromProperties(message, "InternetMessageId") ??
+                GetStringFromProperties(message, "InternetMessageID")) ??
+            BuildStableMessageId(senderEmail, subject, sentAt, body.BodyText);
 
-        var attachments =
-            MapAttachments(message);
+        var recipients = MapRecipients(recipientsObject, ctx.Report);
+        var attachments = MapAttachments(message, folderPath, ctx);
 
         return new ParsedPstEmail(
             InternetMessageId: internetMessageId,
-            FolderPath: string.IsNullOrWhiteSpace(folderPath)
-                ? "Root"
-                : folderPath,
+            FolderPath: string.IsNullOrWhiteSpace(folderPath) ? "Root" : folderPath,
             SenderEmail: senderEmail,
-            SenderName: CleanNullable(senderName),
-            Subject: CleanNullable(subject) ?? "(No subject)",
-            BodyText: CleanNullable(bodyResult.BodyText),
-            BodyHtml: CleanNullable(bodyResult.BodyHtml),
+            SenderName: senderName,
+            Subject: subject,
+            BodyText: CleanBody(body.BodyText),
+            BodyHtml: string.IsNullOrWhiteSpace(body.BodyHtml) ? null : StripNulls(body.BodyHtml),
             SentAt: sentAt,
             ReceivedAt: receivedAt,
             Recipients: recipients,
             Attachments: attachments);
     }
 
-    private static BodyExtractionResult ExtractBody(
-        XstMessage message)
+    private static string ResolveSenderEmail(
+        XstMessage message,
+        object? senderObject,
+        ParseContext ctx,
+        string folderPath,
+        string subject)
     {
-        string? bodyHtml = null;
+        var email =
+            FirstEmail(
+                senderObject,
+                "SmtpAddress", "EmailAddress", "Email", "Address", "DisplayEmail") ??
+            FirstEmail(
+                message,
+                "SenderSmtpAddress", "SentRepresentingSmtpAddress", "SenderEmail",
+                "SenderEmailAddress", "FromEmail");
+
+        if (email != null)
+            return email;
+
+        ctx.Report.SendersUnresolved++;
+
+        var raw =
+            GetString(senderObject, "EmailAddress") ??
+            GetString(message, "SenderEmailAddress");
+
+        ctx.Report.Warn(
+            $"Sender SMTP address not resolved in '{folderPath}' (subject '{Truncate(subject, 60)}'); " +
+            $"raw value: '{Truncate(raw ?? "<none>", 80)}'.");
+
+        return "unknown@unknown.local";
+    }
+
+
+    private static string BuildStableMessageId(
+        string senderEmail,
+        string subject,
+        DateTime? sentAt,
+        string? bodyText)
+    {
+        var bodyPrefix = string.IsNullOrEmpty(bodyText)
+            ? string.Empty
+            : bodyText[..Math.Min(bodyText.Length, 500)];
+
+        var raw = string.Join(
+            "|",
+            senderEmail,
+            subject,
+            sentAt?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
+            bodyPrefix);
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+
+        return $"<{Convert.ToHexString(hash)[..32].ToLowerInvariant()}@pst-hash.local>";
+    }
+
+
+
+    private static BodyExtractionResult ExtractBody(XstMessage message)
+    {
         string? bodyText = null;
+        string? bodyHtml = null;
 
-        /*
-         * 1. Explicit BodyHtml property.
-         */
-        var bodyHtmlObject =
-            GetPropertyValue(
-                message,
-                "BodyHtml");
+        bodyHtml = ExtractStringValue(GetPropertyValue(message, "BodyHtml"));
 
-        bodyHtml =
-            ExtractStringValue(
-                bodyHtmlObject);
-
-        /*
-         * 2. Body property.
-         */
-        var bodyObject =
-            GetPropertyValue(
-                message,
-                "Body");
+        var bodyObject = GetPropertyValue(message, "Body");
 
         if (bodyObject != null)
         {
-            /*
-             * Body may directly be a string.
-             */
-            var directBody =
-                ExtractStringValue(
-                    bodyObject);
+            var format =
+                GetString(bodyObject, "Format") ??
+                (GetBool(message, "IsBodyRtf") ? "Rtf" :
+                 GetBool(message, "IsBodyHtml") ? "Html" : null);
 
-            if (!string.IsNullOrWhiteSpace(directBody))
+            var candidates = new[]
             {
-                var bodyFormat =
-                    GetString(
-                        bodyObject,
-                        "Format");
+                ExtractStringValue(bodyObject),
+                ExtractStringValue(GetPropertyValue(bodyObject, "Text")),
+                ExtractStringValue(GetPropertyValue(bodyObject, "Bytes")),
+                ExtractStringValue(GetPropertyValue(bodyObject, "NativeBody"))
+            };
 
-                var isRtf =
-                    IsRtfBody(directBody) ||
-                    GetBool(
-                        message,
-                        "IsBodyRtf");
-
-                var isHtml =
-                    GetBool(
-                        message,
-                        "IsBodyHtml") ||
-                    IsHtmlBody(
-                        bodyFormat,
-                        directBody);
-
-                if (isRtf)
-                {
-                    bodyText =
-                        ConvertRtfToPlainText(
-                            directBody);
-                }
-                else if (isHtml)
-                {
-                    bodyHtml =
-                        directBody;
-
-                    bodyText =
-                        NormalizeWhitespace(
-                            StripHtml(
-                                directBody));
-                }
-                else
-                {
-                    bodyText =
-                        NormalizeWhitespace(
-                            directBody);
-                }
-            }
-
-            /*
-             * Body.Text.
-             */
-            if (string.IsNullOrWhiteSpace(bodyText) &&
-                string.IsNullOrWhiteSpace(bodyHtml))
+            foreach (var candidate in candidates)
             {
-                var bodyTextObject =
-                    GetPropertyValue(
-                        bodyObject,
-                        "Text");
+                if (string.IsNullOrWhiteSpace(candidate))
+                    continue;
 
-                var nestedText =
-                    ExtractStringValue(
-                        bodyTextObject);
-
-                if (!string.IsNullOrWhiteSpace(nestedText))
-                {
-                    var format =
-                        GetString(
-                            bodyObject,
-                            "Format");
-
-                    if (IsRtfBody(nestedText) ||
-                        StringEqualsLoose(
-                            format,
-                            "Rtf"))
-                    {
-                        bodyText =
-                            ConvertRtfToPlainText(
-                                nestedText);
-                    }
-                    else if (
-                        StringEqualsLoose(
-                            format,
-                            "Html") ||
-                        IsHtmlBody(
-                            format,
-                            nestedText))
-                    {
-                        bodyHtml =
-                            nestedText;
-
-                        bodyText =
-                            NormalizeWhitespace(
-                                StripHtml(
-                                    nestedText));
-                    }
-                    else
-                    {
-                        bodyText =
-                            NormalizeWhitespace(
-                                nestedText);
-                    }
-                }
-            }
-
-            /*
-             * Body.Bytes.
-             */
-            if (string.IsNullOrWhiteSpace(bodyText) &&
-                string.IsNullOrWhiteSpace(bodyHtml))
-            {
-                var bodyBytesObject =
-                    GetPropertyValue(
-                        bodyObject,
-                        "Bytes");
-
-                if (bodyBytesObject is byte[] bytes &&
-                    bytes.Length > 0)
-                {
-                    var decoded =
-                        DecodeBodyBytes(bytes);
-
-                    if (!string.IsNullOrWhiteSpace(decoded))
-                    {
-                        var format =
-                            GetString(
-                                bodyObject,
-                                "Format");
-
-                        if (StringEqualsLoose(
-                                format,
-                                "Rtf") ||
-                            IsRtfBody(decoded))
-                        {
-                            bodyText =
-                                ConvertRtfToPlainText(
-                                    decoded);
-                        }
-                        else if (
-                            StringEqualsLoose(
-                                format,
-                                "Html") ||
-                            IsHtmlBody(
-                                format,
-                                decoded))
-                        {
-                            bodyHtml =
-                                decoded;
-
-                            bodyText =
-                                NormalizeWhitespace(
-                                    StripHtml(
-                                        decoded));
-                        }
-                        else
-                        {
-                            bodyText =
-                                NormalizeWhitespace(
-                                    decoded);
-                        }
-                    }
-                }
-            }
-
-            /*
-             * NativeBody.
-             */
-            if (string.IsNullOrWhiteSpace(bodyText) &&
-                string.IsNullOrWhiteSpace(bodyHtml))
-            {
-                var nativeBody =
-                    GetPropertyValue(
-                        bodyObject,
-                        "NativeBody");
-
-                var nativeText =
-                    ExtractStringValue(
-                        nativeBody);
-
-                if (!string.IsNullOrWhiteSpace(nativeText))
-                {
-                    if (IsRtfBody(nativeText))
-                    {
-                        bodyText =
-                            ConvertRtfToPlainText(
-                                nativeText);
-                    }
-                    else if (
-                        IsHtmlBody(
-                            null,
-                            nativeText))
-                    {
-                        bodyHtml =
-                            nativeText;
-
-                        bodyText =
-                            NormalizeWhitespace(
-                                StripHtml(
-                                    nativeText));
-                    }
-                    else
-                    {
-                        bodyText =
-                            NormalizeWhitespace(
-                                nativeText);
-                    }
-                }
+                AssignBody(candidate, format, ref bodyText, ref bodyHtml);
+                break;
             }
         }
 
-        /*
-         * 3. Direct BodyText property.
-         */
-        if (string.IsNullOrWhiteSpace(bodyText) &&
-            string.IsNullOrWhiteSpace(bodyHtml))
+        if (string.IsNullOrWhiteSpace(bodyText) && string.IsNullOrWhiteSpace(bodyHtml))
         {
-            var directBodyText =
-                GetString(
-                    message,
-                    "BodyText");
+            var directText = GetString(message, "BodyText");
 
-            if (!string.IsNullOrWhiteSpace(directBodyText))
-            {
-                bodyText =
-                    NormalizeWhitespace(
-                        directBodyText);
-            }
+            if (!string.IsNullOrWhiteSpace(directText))
+                bodyText = NormalizeBodyText(directText);
         }
 
-        /*
-         * 4. BodyHtml direct fallback.
-         */
-        if (string.IsNullOrWhiteSpace(bodyHtml))
+        if (string.IsNullOrWhiteSpace(bodyText) && string.IsNullOrWhiteSpace(bodyHtml))
         {
-            var directHtml =
-                GetString(
-                    message,
-                    "BodyHtml");
-
-            if (!string.IsNullOrWhiteSpace(directHtml))
-            {
-                bodyHtml =
-                    directHtml;
-            }
-        }
-
-        /*
-         * 5. Properties fallback.
-         */
-        if (string.IsNullOrWhiteSpace(bodyText) &&
-            string.IsNullOrWhiteSpace(bodyHtml))
-        {
-            var propertyBody =
-                GetStringFromProperties(
-                    message,
-                    "Body");
+            var propertyBody = ExtractStringValue(GetPropertyFromBag(message, "Body"));
 
             if (!string.IsNullOrWhiteSpace(propertyBody))
-            {
-                if (IsRtfBody(propertyBody))
-                {
-                    bodyText =
-                        ConvertRtfToPlainText(
-                            propertyBody);
-                }
-                else if (
-                    IsHtmlBody(
-                        null,
-                        propertyBody))
-                {
-                    bodyHtml =
-                        propertyBody;
-
-                    bodyText =
-                        NormalizeWhitespace(
-                            StripHtml(
-                                propertyBody));
-                }
-                else
-                {
-                    bodyText =
-                        NormalizeWhitespace(
-                            propertyBody);
-                }
-            }
+                AssignBody(propertyBody, null, ref bodyText, ref bodyHtml);
         }
 
-        /*
-         * If HTML exists but plain text does not,
-         * derive the plain text from HTML.
-         */
-        if (!string.IsNullOrWhiteSpace(bodyHtml) &&
-            string.IsNullOrWhiteSpace(bodyText))
-        {
-            bodyText =
-                NormalizeWhitespace(
-                    StripHtml(
-                        bodyHtml));
-        }
+        if (!string.IsNullOrWhiteSpace(bodyHtml) && string.IsNullOrWhiteSpace(bodyText))
+            bodyText = NormalizeBodyText(StripHtml(bodyHtml));
 
-        return new BodyExtractionResult(
-            BodyText: bodyText,
-            BodyHtml: bodyHtml);
+        return new BodyExtractionResult(bodyText, bodyHtml);
     }
 
-    private static string? ExtractStringValue(
-        object? value)
+    private static void AssignBody(
+        string content,
+        string? format,
+        ref string? bodyText,
+        ref string? bodyHtml)
     {
-        if (value == null)
-            return null;
-
-        if (value is string text)
+        if (IsRtfBody(content) || StringEqualsLoose(format, "Rtf"))
         {
-            return string.IsNullOrWhiteSpace(text)
-                ? null
-                : text;
-        }
+            var rtf = ConvertRtf(content);
 
-        return SafeToString(value);
+            if (!string.IsNullOrWhiteSpace(rtf.Html))
+                bodyHtml = rtf.Html;
+
+            bodyText = rtf.Text;
+        }
+        else if (StringEqualsLoose(format, "Html") || IsHtmlBody(format, content))
+        {
+            bodyHtml = content;
+            bodyText = NormalizeBodyText(StripHtml(content));
+        }
+        else
+        {
+            bodyText = NormalizeBodyText(content);
+        }
     }
 
-    private static string? DecodeBodyBytes(
-        byte[] bytes)
+    private static string? ExtractStringValue(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+
+            case string text:
+                var cleanText = StripNulls(text);
+                return string.IsNullOrWhiteSpace(cleanText) ? null : cleanText;
+
+            case byte[] bytes:
+                return StripNulls(DecodeBodyBytes(bytes));
+
+            default:
+                return SafeToString(value);
+        }
+    }
+
+    private static string? DecodeBodyBytes(byte[] bytes)
     {
         if (bytes.Length == 0)
             return null;
 
-        /*
-         * UTF-16 LE BOM.
-         */
-        if (bytes.Length >= 2 &&
-            bytes[0] == 0xFF &&
-            bytes[1] == 0xFE)
-        {
-            return Encoding.Unicode.GetString(
-                bytes,
-                2,
-                bytes.Length - 2);
-        }
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
 
-        /*
-         * UTF-8 BOM.
-         */
-        if (bytes.Length >= 3 &&
-            bytes[0] == 0xEF &&
-            bytes[1] == 0xBB &&
-            bytes[2] == 0xBF)
-        {
-            return Encoding.UTF8.GetString(
-                bytes,
-                3,
-                bytes.Length - 3);
-        }
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
 
-        /*
-         * UTF-8.
-         */
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+
+        if (LooksLikeUtf16Le(bytes))
+            return Encoding.Unicode.GetString(bytes);
+
         try
         {
-            var utf8 =
-                Encoding.UTF8.GetString(
-                    bytes);
-
-            if (!string.IsNullOrWhiteSpace(utf8))
-                return utf8;
+            return StrictUtf8.GetString(bytes);
         }
-        catch
+        catch (DecoderFallbackException)
         {
-        }
-
-        /*
-         * UTF-16 fallback.
-         */
-        try
-        {
-            return Encoding.Unicode.GetString(
-                bytes);
-        }
-        catch
-        {
-            return null;
+            return DetectLegacyEncoding(bytes).GetString(bytes);
         }
     }
 
-    private static IReadOnlyCollection<ParsedPstRecipient> MapRecipients(
-        object? recipientsObject)
+    private static bool LooksLikeUtf16Le(byte[] bytes)
     {
-        var recipients =
-            new List<ParsedPstRecipient>();
+        var sample = Math.Min(bytes.Length, 128);
 
-        AddRecipients(
-            recipients,
-            recipientsObject,
-            "To",
-            RecipientType.To);
+        if (sample < 4)
+            return false;
 
-        AddRecipients(
-            recipients,
-            recipientsObject,
-            "Cc",
-            RecipientType.Cc);
+        var zeros = 0;
+        var pairs = 0;
 
-        AddRecipients(
-            recipients,
-            recipientsObject,
-            "Bcc",
-            RecipientType.Bcc);
+        for (var i = 1; i < sample; i += 2)
+        {
+            pairs++;
+
+            if (bytes[i] == 0)
+                zeros++;
+        }
+
+        return pairs > 0 && zeros * 2 > pairs;
+    }
+
+    private static Encoding DetectLegacyEncoding(byte[] bytes)
+    {
+        var head = Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4096));
+
+        var charset = CharsetRegex.Match(head);
+
+        if (charset.Success)
+        {
+            try
+            {
+                return Encoding.GetEncoding(charset.Groups[1].Value);
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        var ansi = AnsiCodePageRegex.Match(head);
+
+        if (ansi.Success && int.TryParse(ansi.Groups[1].Value, out var codePage))
+            return GetEncodingOrLatin1(codePage);
+
+        return GetEncodingOrLatin1(FallbackCodePage);
+    }
+
+    private static Encoding GetEncodingOrLatin1(int codePage)
+    {
+        try
+        {
+            return Encoding.GetEncoding(codePage);
+        }
+        catch (Exception)
+        {
+            return Encoding.Latin1;
+        }
+    }
+
+
+    private static IReadOnlyCollection<ParsedPstRecipient> MapRecipients(
+        object? recipientsObject,
+        PstParseReport report)
+    {
+        var recipients = new List<ParsedPstRecipient>();
+
+        AddRecipients(recipients, recipientsObject, "To", RecipientType.To, report);
+        AddRecipients(recipients, recipientsObject, "Cc", RecipientType.Cc, report);
+        AddRecipients(recipients, recipientsObject, "Bcc", RecipientType.Bcc, report);
 
         return recipients
-            .GroupBy(
-                x => new
-                {
-                    x.RecipientType,
-                    RecipientEmail =
-                        x.RecipientEmail
-                            .ToLowerInvariant()
-                })
-            .Select(
-                x => x.First())
+            .GroupBy(x => (x.RecipientType, Email: x.RecipientEmail.ToLowerInvariant()))
+            .Select(x => x.First())
             .ToList();
     }
 
@@ -780,108 +674,154 @@ public class XstReaderPstParser : IPstParser
         List<ParsedPstRecipient> recipients,
         object? recipientsObject,
         string propertyName,
-        RecipientType recipientType)
+        RecipientType recipientType,
+        PstParseReport report)
     {
-        foreach (var recipientObject in GetEnumerable(
-                     recipientsObject,
-                     propertyName))
+        foreach (var recipientObject in GetEnumerable(recipientsObject, propertyName))
         {
-            var email =
-                NormalizeEmail(
-                    GetRecipientEmail(
-                        recipientObject));
+            var email = GetRecipientEmail(recipientObject);
 
             if (string.IsNullOrWhiteSpace(email))
+            {
+                report.RecipientsWithoutEmail++;
                 continue;
-
-            var name =
-                CleanNullable(
-                    GetRecipientName(
-                        recipientObject));
+            }
 
             recipients.Add(
                 new ParsedPstRecipient(
                     recipientType,
                     email,
-                    name));
+                    CleanNullable(GetRecipientName(recipientObject))));
         }
     }
 
-    private static IReadOnlyCollection<ParsedPstAttachment> MapAttachments(
-        object message)
-    {
-        var attachments =
-            new List<ParsedPstAttachment>();
+    private static string? GetRecipientEmail(object? recipientObject) =>
+        FirstEmail(
+            recipientObject,
+            "SmtpAddress", "EmailAddress", "Email", "Address", "DisplayEmail");
 
-        foreach (var attachmentObject in GetEnumerable(
-                     message,
-                     "Attachments"))
+    private static string? GetRecipientName(object? recipientObject)
+    {
+        if (recipientObject == null)
+            return null;
+
+        return GetString(recipientObject, "DisplayName") ??
+               GetString(recipientObject, "Name") ??
+               GetString(recipientObject, "RecipientName") ??
+               GetStringFromProperties(recipientObject, "DisplayName");
+    }
+
+
+    private static string? FirstEmail(object? source, params string[] propertyNames)
+    {
+        if (source == null)
+            return null;
+
+        foreach (var name in propertyNames)
         {
+            var email = NormalizeEmail(GetString(source, name));
+
+            if (email != null)
+                return email;
+        }
+
+        foreach (var name in propertyNames)
+        {
+            var email = NormalizeEmail(ValueToString(GetPropertyFromBag(source, name)));
+
+            if (email != null)
+                return email;
+        }
+
+        return null;
+    }
+
+
+
+    private static IReadOnlyCollection<ParsedPstAttachment> MapAttachments(
+        object message,
+        string folderPath,
+        ParseContext ctx)
+    {
+        var attachments = new List<ParsedPstAttachment>();
+
+        foreach (var attachmentObject in GetEnumerable(message, "Attachments"))
+        {
+            ctx.CancellationToken.ThrowIfCancellationRequested();
+
+            string? tempFilePath = null;
+
             try
             {
-                var isFile =
-                    GetBool(
-                        attachmentObject,
-                        "IsFile");
-
-                if (!isFile)
+                if (!GetBool(attachmentObject, "IsFile"))
+                {
+                    ctx.Report.AttachmentsSkipped++;
+                    ctx.Report.Warn($"Non-file attachment skipped in '{folderPath}'.");
                     continue;
+                }
 
                 var fileName =
-                    GetString(
-                        attachmentObject,
-                        "FileName") ??
-                    GetString(
-                        attachmentObject,
-                        "LongFileName") ??
-                    GetString(
-                        attachmentObject,
-                        "DisplayName") ??
+                    GetString(attachmentObject, "FileName") ??
+                    GetString(attachmentObject, "LongFileName") ??
+                    GetString(attachmentObject, "DisplayName") ??
                     $"attachment-{Guid.NewGuid():N}.bin";
 
-                var safeFileName =
-                    SanitizeFileName(
-                        fileName);
+                var safeFileName = SanitizeFileName(fileName);
 
-                var tempFilePath =
-                    Path.Combine(
-                        Path.GetTempPath(),
-                        $"xstreader-{Guid.NewGuid():N}-{safeFileName}");
+                Directory.CreateDirectory(ctx.TempDirectory);
 
-                try
+                tempFilePath = Path.Combine(
+                    ctx.TempDirectory,
+                    $"{++ctx.AttachmentCounter}{Path.GetExtension(safeFileName)}");
+
+                SaveAttachmentToFile(ctx.Xst, attachmentObject, tempFilePath);
+
+                var info = new FileInfo(tempFilePath);
+
+                if (!info.Exists)
                 {
-                    SaveAttachmentToFile(
-                        attachmentObject,
-                        tempFilePath);
-
-                    if (!File.Exists(tempFilePath))
-                        continue;
-
-                    var bytes =
-                        File.ReadAllBytes(
-                            tempFilePath);
-
-                    if (bytes.Length == 0)
-                        continue;
-
-                    attachments.Add(
-                        new ParsedPstAttachment(
-                            safeFileName,
-                            GuessContentType(
-                                safeFileName),
-                            bytes));
+                    ctx.Report.AttachmentsSkipped++;
+                    ctx.Report.Warn($"Attachment '{safeFileName}' in '{folderPath}' was not written.");
+                    continue;
                 }
-                finally
+
+                if (info.Length == 0)
                 {
-                    TryDeleteFile(
-                        tempFilePath);
+                    ctx.Report.AttachmentsSkipped++;
+                    ctx.Report.Warn($"Attachment '{safeFileName}' in '{folderPath}' is empty.");
+                    continue;
                 }
+
+                if (info.Length > MaxAttachmentBytes)
+                {
+                    ctx.Report.AttachmentsSkipped++;
+                    ctx.Report.Warn(
+                        $"Attachment '{safeFileName}' in '{folderPath}' skipped: " +
+                        $"{info.Length / (1024 * 1024)} MB exceeds the {MaxAttachmentBytes / (1024 * 1024)} MB limit.");
+                    continue;
+                }
+
+                attachments.Add(
+                    new ParsedPstAttachment(
+                        safeFileName,
+                        GuessContentType(safeFileName),
+                        File.ReadAllBytes(tempFilePath)));
+
+                ctx.Report.AttachmentsSaved++;
             }
-            catch
+            catch (OperationCanceledException)
             {
-                /*
-                 * Broken attachment should not stop PST parsing.
-                 */
+                throw;
+            }
+            catch (Exception ex)
+            {
+                ctx.Report.AttachmentsSkipped++;
+                ctx.Report.Warn($"Attachment in '{folderPath}' failed: {GetInnermostMessage(ex)}");
+            }
+            finally
+            {
+                if (tempFilePath != null)
+                    TryDeleteFile(tempFilePath);
             }
         }
 
@@ -889,169 +829,108 @@ public class XstReaderPstParser : IPstParser
     }
 
     private static void SaveAttachmentToFile(
+        XstFile xstFile,
         object attachmentObject,
         string filePath)
     {
-        var attachmentType =
-            attachmentObject.GetType();
-
-        var saveMethods =
-            attachmentType
-                .GetMethods(
-                    BindingFlags.Instance |
-                    BindingFlags.Public)
-                .Where(
-                    x => x.Name == "SaveToFile")
-                .OrderBy(
-                    x => x.GetParameters().Length)
-                .ToList();
-
-        if (saveMethods.Count == 0)
-        {
-            /*
-             * Newer XstReader versions expose saving through
-             * XstFile.SaveAttachment rather than Attachment.SaveToFile.
-             *
-             * If this happens, the parser cannot save the attachment
-             * through the current reflection-only implementation.
-             */
-            throw new InvalidOperationException(
-                "XstReader attachment does not expose SaveToFile method.");
-        }
+        // 1. Attachment.SaveToFile(...)
+        var saveMethods = attachmentObject
+            .GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(x => x.Name == "SaveToFile")
+            .OrderBy(x => x.GetParameters().Length)
+            .ToList();
 
         foreach (var method in saveMethods)
         {
-            var parameters =
-                method.GetParameters();
+            var parameters = method.GetParameters();
+
+            if (parameters.Length == 0 || parameters[0].ParameterType != typeof(string))
+                continue;
+
+            var args = new object?[parameters.Length];
+            args[0] = filePath;
+
+            for (var i = 1; i < parameters.Length; i++)
+            {
+                args[i] = parameters[i].HasDefaultValue
+                    ? parameters[i].DefaultValue
+                    : CreateDefaultValue(parameters[i].ParameterType);
+            }
 
             try
             {
-                if (parameters.Length == 1)
-                {
-                    method.Invoke(
-                        attachmentObject,
-                        new object?[]
-                        {
-                            filePath
-                        });
+                method.Invoke(attachmentObject, args);
 
+                if (File.Exists(filePath))
                     return;
-                }
-
-                if (parameters.Length == 2)
-                {
-                    var secondParameterValue =
-                        CreateDefaultValue(
-                            parameters[1].ParameterType);
-
-                    method.Invoke(
-                        attachmentObject,
-                        new object?[]
-                        {
-                            filePath,
-                            secondParameterValue
-                        });
-
-                    return;
-                }
             }
-            catch
+            catch (TargetInvocationException)
             {
-                /*
-                 * Try next overload.
-                 */
             }
         }
 
+        var fileMethod = xstFile
+            .GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(x => x.Name == "SaveAttachment")
+            .FirstOrDefault(x =>
+            {
+                var p = x.GetParameters();
+                return p.Length >= 2 &&
+                       p[0].ParameterType.IsInstanceOfType(attachmentObject) &&
+                       p[1].ParameterType == typeof(string);
+            });
+
+        if (fileMethod != null)
+        {
+            var p = fileMethod.GetParameters();
+            var args = new object?[p.Length];
+            args[0] = attachmentObject;
+            args[1] = filePath;
+
+            for (var i = 2; i < p.Length; i++)
+            {
+                args[i] = p[i].HasDefaultValue
+                    ? p[i].DefaultValue
+                    : CreateDefaultValue(p[i].ParameterType);
+            }
+
+            fileMethod.Invoke(xstFile, args);
+
+            if (File.Exists(filePath))
+                return;
+        }
+
         throw new InvalidOperationException(
-            "Unable to save XstReader attachment.");
+            "This XstReader version exposes neither Attachment.SaveToFile nor XstFile.SaveAttachment; " +
+            "attachment could not be saved.");
     }
 
-    private static object? CreateDefaultValue(
-        Type type)
+    private static object? CreateDefaultValue(Type type)
     {
+        if (Nullable.GetUnderlyingType(type) != null)
+            return null;
+
         if (type == typeof(DateTime))
             return DateTime.UtcNow;
-
-        if (type == typeof(DateTime?))
-            return DateTime.UtcNow;
-
-        if (type == typeof(bool))
-            return false;
 
         if (type == typeof(string))
             return string.Empty;
 
-        return type.IsValueType
-            ? Activator.CreateInstance(type)
-            : null;
+        return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
 
-    private static string? GetRecipientEmail(
-        object? recipientObject)
-    {
-        if (recipientObject == null)
-            return null;
 
-        return GetString(
-                   recipientObject,
-                   "EmailAddress") ??
-               GetString(
-                   recipientObject,
-                   "Email") ??
-               GetString(
-                   recipientObject,
-                   "SmtpAddress") ??
-               GetString(
-                   recipientObject,
-                   "Address") ??
-               GetString(
-                   recipientObject,
-                   "DisplayEmail") ??
-               GetStringFromProperties(
-                   recipientObject,
-                   "EmailAddress") ??
-               GetStringFromProperties(
-                   recipientObject,
-                   "SmtpAddress");
-    }
 
-    private static string? GetRecipientName(
-        object? recipientObject)
-    {
-        if (recipientObject == null)
-            return null;
-
-        return GetString(
-                   recipientObject,
-                   "DisplayName") ??
-               GetString(
-                   recipientObject,
-                   "Name") ??
-               GetString(
-                   recipientObject,
-                   "RecipientName") ??
-               GetStringFromProperties(
-                   recipientObject,
-                   "DisplayName");
-    }
-
-    private static IEnumerable<object> GetEnumerable(
-        object? source,
-        string propertyName)
+    private static IEnumerable<object> GetEnumerable(object? source, string propertyName)
     {
         if (source == null)
             yield break;
 
-        var value =
-            GetPropertyValue(
-                source,
-                propertyName);
+        var value = GetPropertyValue(source, propertyName);
 
-        if (value is null)
-            yield break;
-
-        if (value is string)
+        if (value is null or string)
             yield break;
 
         if (value is not IEnumerable enumerable)
@@ -1064,253 +943,116 @@ public class XstReaderPstParser : IPstParser
         }
     }
 
-    private static object? GetObject(
-        object? source,
-        string propertyName)
+    private static object? GetObject(object? source, string propertyName) =>
+        source == null ? null : GetPropertyValue(source, propertyName);
+
+    private static string? GetString(object? source, string propertyName) =>
+        ValueToString(GetPropertyValue(source, propertyName));
+
+    private static DateTime? GetDateTime(object? source, string propertyName) =>
+        ValueToDateTime(GetPropertyValue(source, propertyName));
+
+    private static bool GetBool(object? source, string propertyName)
     {
-        if (source == null)
-            return null;
-
-        return GetPropertyValue(
-            source,
-            propertyName);
-    }
-
-    private static string? GetString(
-        object? source,
-        string propertyName)
-    {
-        var value =
-            GetPropertyValue(
-                source,
-                propertyName);
-
-        return ValueToString(value);
-    }
-
-    private static DateTime? GetDateTime(
-        object? source,
-        string propertyName)
-    {
-        var value =
-            GetPropertyValue(
-                source,
-                propertyName);
-
-        return ValueToDateTime(value);
-    }
-
-    private static bool GetBool(
-        object? source,
-        string propertyName)
-    {
-        var value =
-            GetPropertyValue(
-                source,
-                propertyName);
+        var value = GetPropertyValue(source, propertyName);
 
         return value switch
         {
-            bool boolean =>
-                boolean,
-
-            int number =>
-                number != 0,
-
-            long number =>
-                number != 0,
-
-            string text when bool.TryParse(
-                text,
-                out var parsed) =>
-                parsed,
-
-            string text when int.TryParse(
-                text,
-                out var parsed) =>
-                parsed != 0,
-
-            _ =>
-                false
+            bool boolean => boolean,
+            int number => number != 0,
+            long number => number != 0,
+            string text when bool.TryParse(text, out var parsed) => parsed,
+            string text when int.TryParse(text, out var parsed) => parsed != 0,
+            _ => false
         };
     }
 
-    private static object? GetPropertyValue(
-        object? source,
-        string propertyName)
+    private static object? GetPropertyValue(object? source, string propertyName)
     {
         if (source == null)
             return null;
 
-        var type =
-            source.GetType();
+        var getter = GetterCache.GetOrAdd(
+            (source.GetType(), propertyName),
+            static key => BuildGetter(key.Item1, key.Item2));
+
+        if (getter == null)
+            return null;
 
         try
         {
-            var property =
-                type.GetProperty(
-                    propertyName,
-                    BindingFlags.Instance |
-                    BindingFlags.Public |
-                    BindingFlags.IgnoreCase);
-
-            if (property != null &&
-                property.GetIndexParameters().Length == 0)
-            {
-                return property.GetValue(source);
-            }
-
-            var field =
-                type.GetField(
-                    propertyName,
-                    BindingFlags.Instance |
-                    BindingFlags.Public |
-                    BindingFlags.IgnoreCase);
-
-            if (field != null)
-                return field.GetValue(source);
+            return getter(source);
         }
         catch
         {
             return null;
         }
-
-        return null;
     }
 
-    private static string? GetStringFromProperties(
-        object? source,
-        string propertyName)
+    private static Func<object, object?>? BuildGetter(Type type, string propertyName)
     {
-        if (source == null)
-            return null;
-
-        var propertiesObject =
-            GetPropertyValue(
-                source,
-                "Properties");
-
-        if (propertiesObject == null)
-            return null;
-
-        foreach (var propertyObject in EnumerateObject(
-                     propertiesObject))
+        try
         {
-            var name =
-                GetString(
-                    propertyObject,
-                    "Name") ??
-                GetString(
-                    propertyObject,
-                    "PropertyName") ??
-                GetString(
-                    propertyObject,
-                    "Key") ??
-                GetString(
-                    propertyObject,
-                    "TagName") ??
-                GetString(
-                    propertyObject,
-                    "CanonicalName");
+            const BindingFlags flags =
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase;
 
-            if (!StringEqualsLoose(
-                    name,
-                    propertyName))
-            {
-                continue;
-            }
+            var property = type.GetProperty(propertyName, flags);
 
-            var value =
-                GetPropertyValue(
-                    propertyObject,
-                    "Value") ??
-                GetPropertyValue(
-                    propertyObject,
-                    "Data") ??
-                GetPropertyValue(
-                    propertyObject,
-                    "PropertyValue");
+            if (property != null && property.CanRead && property.GetIndexParameters().Length == 0)
+                return instance => property.GetValue(instance);
 
-            var text =
-                ValueToString(value);
+            var field = type.GetField(propertyName, flags);
 
-            if (!string.IsNullOrWhiteSpace(text))
-                return text;
+            if (field != null)
+                return instance => field.GetValue(instance);
+        }
+        catch (AmbiguousMatchException)
+        {
         }
 
         return null;
     }
 
-    private static DateTime? GetDateTimeFromProperties(
-        object? source,
-        string propertyName)
+    private static string? GetStringFromProperties(object? source, string propertyName) =>
+        ValueToString(GetPropertyFromBag(source, propertyName));
+
+    private static DateTime? GetDateTimeFromProperties(object? source, string propertyName) =>
+        ValueToDateTime(GetPropertyFromBag(source, propertyName));
+
+    private static object? GetPropertyFromBag(object? source, string propertyName)
     {
-        if (source == null)
+        var bag = GetPropertyValue(source, "Properties");
+
+        if (bag == null)
             return null;
 
-        var propertiesObject =
-            GetPropertyValue(
-                source,
-                "Properties");
-
-        if (propertiesObject == null)
-            return null;
-
-        foreach (var propertyObject in EnumerateObject(
-                     propertiesObject))
+        foreach (var propertyObject in EnumerateObject(bag))
         {
             var name =
-                GetString(
-                    propertyObject,
-                    "Name") ??
-                GetString(
-                    propertyObject,
-                    "PropertyName") ??
-                GetString(
-                    propertyObject,
-                    "Key") ??
-                GetString(
-                    propertyObject,
-                    "TagName") ??
-                GetString(
-                    propertyObject,
-                    "CanonicalName");
+                GetString(propertyObject, "Name") ??
+                GetString(propertyObject, "PropertyName") ??
+                GetString(propertyObject, "Key") ??
+                GetString(propertyObject, "TagName") ??
+                GetString(propertyObject, "CanonicalName");
 
-            if (!StringEqualsLoose(
-                    name,
-                    propertyName))
-            {
+            if (!StringEqualsLoose(name, propertyName))
                 continue;
-            }
 
             var value =
-                GetPropertyValue(
-                    propertyObject,
-                    "Value") ??
-                GetPropertyValue(
-                    propertyObject,
-                    "Data") ??
-                GetPropertyValue(
-                    propertyObject,
-                    "PropertyValue");
+                GetPropertyValue(propertyObject, "Value") ??
+                GetPropertyValue(propertyObject, "Data") ??
+                GetPropertyValue(propertyObject, "PropertyValue");
 
-            var date =
-                ValueToDateTime(value);
-
-            if (date.HasValue)
-                return date;
+            if (value != null)
+                return value;
         }
 
         return null;
     }
 
-    private static IEnumerable<object> EnumerateObject(
-        object? value)
+    private static IEnumerable<object> EnumerateObject(object? value)
     {
-        if (value == null)
-            yield break;
-
-        if (value is string)
+        if (value == null || value is string)
             yield break;
 
         if (value is IDictionary dictionary)
@@ -1334,53 +1076,45 @@ public class XstReaderPstParser : IPstParser
         }
     }
 
-    private static string? ValueToString(
-        object? value)
+
+
+    /// <summary>
+    /// Η PostgreSQL δεν δέχεται τον χαρακτήρα NUL (0x00) σε στήλες κειμένου.
+    /// </summary>
+    private static string? StripNulls(string? value) =>
+        value is null || value.IndexOf('\0') < 0
+            ? value
+            : value.Replace("\0", string.Empty);
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static string? ValueToString(object? value)
     {
         return value switch
         {
-            null =>
-                null,
-
-            string text when
-                string.IsNullOrWhiteSpace(text) =>
-                null,
-
-            string text =>
-                text.Trim(),
-
-            DateTime dateTime =>
-                dateTime.ToString("O"),
-
-            DateTimeOffset dateTimeOffset =>
-                dateTimeOffset.ToString("O"),
-
-            byte[] bytes when
-                bytes.Length == 0 =>
-                null,
-
-            byte[] bytes =>
-                Convert.ToBase64String(bytes),
-
-            _ =>
-                SafeToString(value)
+            null => null,
+            string text => NullIfBlank(StripNulls(text)?.Trim()),
+            DateTime dateTime => dateTime.ToString("O", CultureInfo.InvariantCulture),
+            DateTimeOffset offset => offset.ToString("O", CultureInfo.InvariantCulture),
+            byte[] => null,
+            _ => SafeToString(value)
         };
     }
 
-    private static string? SafeToString(
-        object value)
+    private static string? SafeToString(object value)
     {
-        var text =
-            value.ToString()?.Trim();
+        var text = StripNulls(value.ToString())?.Trim();
 
         if (string.IsNullOrWhiteSpace(text))
             return null;
 
-        var type =
-            value.GetType();
+        var type = value.GetType();
+        var typeName = type.FullName ?? type.Name;
 
-        if (text == type.FullName ||
-            text == type.Name)
+        if (text == type.Name ||
+            text.StartsWith(typeName, StringComparison.Ordinal) ||
+            text.StartsWith(type.Name + "`", StringComparison.Ordinal))
         {
             return null;
         }
@@ -1388,259 +1122,188 @@ public class XstReaderPstParser : IPstParser
         return text;
     }
 
-    private static DateTime? ValueToDateTime(
-        object? value)
+    private static DateTime? ValueToDateTime(object? value)
     {
         return value switch
         {
-            null =>
-                null,
+            null => null,
 
             DateTime dateTime =>
                 dateTime.Kind == DateTimeKind.Unspecified
-                    ? DateTime.SpecifyKind(
-                        dateTime,
-                        DateTimeKind.Utc)
+                    ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)
                     : dateTime.ToUniversalTime(),
 
-            DateTimeOffset dateTimeOffset =>
-                dateTimeOffset.UtcDateTime,
+            DateTimeOffset offset => offset.UtcDateTime,
 
             string text when DateTime.TryParse(
                 text,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal |
-                DateTimeStyles.AdjustToUniversal,
-                out var parsed) =>
-                parsed,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed) => parsed,
 
-            _ =>
-                null
+            _ => null
         };
     }
 
-    private static string? NormalizeEmail(
-        string? email)
+    private static string? NormalizeEmail(string? email)
     {
         if (string.IsNullOrWhiteSpace(email))
             return null;
 
-        var normalized =
-            email.Trim();
+        var match = EmailRegex.Match(email.Trim());
 
-        var match =
-            Regex.Match(
-                normalized,
-                @"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}",
-                RegexOptions.IgnoreCase);
-
-        if (match.Success)
-        {
-            return match.Value.ToLowerInvariant();
-        }
-
-        if (normalized.Contains('@'))
-            return normalized.ToLowerInvariant();
-
-        return null;
+        // Διευθύνσεις X.500 (/O=...) δεν περιέχουν έγκυρο email => null.
+        return match.Success ? match.Value.ToLowerInvariant() : null;
     }
 
-    private static string? CleanNullable(
-        string? value)
+
+    private static string? CleanNullable(string? value)
+    {
+        value = StripNulls(value);
+
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return InlineWhitespaceRegex.Replace(value, " ").Trim();
+    }
+
+    private static string? CleanBody(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
-        return NormalizeWhitespace(value);
+        var normalized = NormalizeBodyText(value);
+
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
-    private static string NormalizeWhitespace(
-        string value)
+    private static string NormalizeBodyText(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return string.Empty;
 
-        return Regex.Replace(
-            value,
-            @"\s+",
-            " ").Trim();
+        var text = StripNulls(value)!
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Replace('\u00A0', ' ');
+
+        text = HorizontalWhitespaceRegex.Replace(text, " ");
+        text = SpacesAroundNewlineRegex.Replace(text, "\n");
+        text = ManyNewlinesRegex.Replace(text, "\n\n");
+
+        return text.Trim();
     }
 
-    private static bool IsHtmlBody(
-        string? bodyFormat,
-        string body)
+    private static bool IsHtmlBody(string? bodyFormat, string body)
     {
         if (!string.IsNullOrWhiteSpace(bodyFormat) &&
-            bodyFormat.Contains(
-                "html",
-                StringComparison.OrdinalIgnoreCase))
+            bodyFormat.Contains("html", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return body.Contains(
-                   "<html",
-                   StringComparison.OrdinalIgnoreCase) ||
-               body.Contains(
-                   "<body",
-                   StringComparison.OrdinalIgnoreCase) ||
-               body.Contains(
-                   "</",
-                   StringComparison.OrdinalIgnoreCase);
+        return HtmlMarkerRegex.IsMatch(body);
     }
 
-    private static string StripHtml(
-        string html)
+    private static string StripHtml(string html)
     {
         if (string.IsNullOrWhiteSpace(html))
             return string.Empty;
 
-        var withoutScripts =
-            Regex.Replace(
-                html,
-                "<script.*?</script>",
-                string.Empty,
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
+        var text = ScriptRegex.Replace(html, " ");
+        text = StyleRegex.Replace(text, " ");
+        text = HtmlCommentRegex.Replace(text, " ");
+        text = HtmlBreakRegex.Replace(text, "\n");
+        text = HtmlCellRegex.Replace(text, " ");
+        text = HtmlTagRegex.Replace(text, string.Empty);
 
-        var withoutStyles =
-            Regex.Replace(
-                withoutScripts,
-                "<style.*?</style>",
-                string.Empty,
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        var withoutTags =
-            Regex.Replace(
-                withoutStyles,
-                "<.*?>",
-                " ",
-                RegexOptions.Singleline);
-
-        return WebUtility.HtmlDecode(
-            withoutTags);
+        return WebUtility.HtmlDecode(text);
     }
 
-    private static string SanitizeFileName(
-        string fileName)
-    {
-        var invalidChars =
-            Path.GetInvalidFileNameChars();
-
-        var sanitized =
-            new string(
-                fileName
-                    .Select(
-                        character =>
-                            invalidChars.Contains(
-                                character)
-                                ? '_'
-                                : character)
-                    .ToArray());
-
-        sanitized =
-            sanitized.Trim();
-
-        return string.IsNullOrWhiteSpace(
-            sanitized)
-            ? $"attachment-{Guid.NewGuid():N}.bin"
-            : sanitized;
-    }
-
-    private static string GuessContentType(
-        string fileName)
-    {
-        var extension =
-            Path.GetExtension(
-                fileName)
-                .ToLowerInvariant();
-
-        return extension switch
-        {
-            ".txt" =>
-                "text/plain",
-
-            ".html" =>
-                "text/html",
-
-            ".htm" =>
-                "text/html",
-
-            ".pdf" =>
-                "application/pdf",
-
-            ".doc" =>
-                "application/msword",
-
-            ".docx" =>
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-
-            ".xls" =>
-                "application/vnd.ms-excel",
-
-            ".xlsx" =>
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-
-            ".csv" =>
-                "text/csv",
-
-            ".jpg" =>
-                "image/jpeg",
-
-            ".jpeg" =>
-                "image/jpeg",
-
-            ".png" =>
-                "image/png",
-
-            ".gif" =>
-                "image/gif",
-
-            ".zip" =>
-                "application/zip",
-
-            _ =>
-                "application/octet-stream"
-        };
-    }
-
-    private static bool StringEqualsLoose(
-        string? left,
-        string right)
+    private static bool StringEqualsLoose(string? left, string right)
     {
         if (string.IsNullOrWhiteSpace(left))
             return false;
 
-        static string Normalize(
-            string value)
-        {
-            return Regex.Replace(
-                       value,
-                       @"[^a-zA-Z0-9]",
-                       string.Empty)
-                .ToLowerInvariant();
-        }
-
-        return Normalize(left) ==
-               Normalize(right);
+        return string.Equals(
+            NonAlphanumericRegex.Replace(left, string.Empty),
+            NonAlphanumericRegex.Replace(right, string.Empty),
+            StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string GetInnermostMessage(
-        Exception exception)
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+
+
+    private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        var current =
-            exception;
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    private static string SanitizeFileName(string fileName)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+
+        var sanitized = new string(
+            fileName.Select(c => invalid.Contains(c) || char.IsControl(c) ? '_' : c).ToArray())
+            .Trim()
+            .TrimEnd('.');
+
+        if (string.IsNullOrWhiteSpace(sanitized) || sanitized.All(c => c == '.' || c == '_'))
+            return $"attachment-{Guid.NewGuid():N}.bin";
+
+        var extension = Path.GetExtension(sanitized);
+        var baseName = Path.GetFileNameWithoutExtension(sanitized);
+
+        if (ReservedWindowsNames.Contains(baseName))
+            baseName = "_" + baseName;
+
+        if (extension.Length > 16)
+            extension = extension[..16];
+
+        var maxBase = Math.Max(1, MaxFileNameLength - extension.Length);
+
+        if (baseName.Length > maxBase)
+            baseName = baseName[..maxBase];
+
+        return baseName + extension;
+    }
+
+    private static string GuessContentType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".txt" => "text/plain",
+            ".html" or ".htm" => "text/html",
+            ".pdf" => "application/pdf",
+            ".doc" => "application/msword",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xls" => "application/vnd.ms-excel",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".csv" => "text/csv",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            ".zip" => "application/zip",
+            _ => "application/octet-stream"
+        };
+    }
+
+
+    private static string GetInnermostMessage(Exception exception)
+    {
+        var current = exception;
 
         while (current.InnerException != null)
-            current =
-                current.InnerException;
+            current = current.InnerException;
 
         return current.Message;
     }
 
-    private static void TryDeleteFile(
-        string filePath)
+    private static void TryDeleteFile(string filePath)
     {
         try
         {
@@ -1649,151 +1312,238 @@ public class XstReaderPstParser : IPstParser
         }
         catch
         {
-            /*
-             * Ignore temp cleanup errors.
-             */
         }
     }
 
-    private static bool IsRtfBody(
-        string? body)
+    private static void TryDeleteDirectory(string directoryPath)
+    {
+        try
+        {
+            if (Directory.Exists(directoryPath))
+                Directory.Delete(directoryPath, recursive: true);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ValidatePstHeader(string pstFilePath)
+    {
+        const int headerLength = 12;
+
+        var fileInfo = new FileInfo(pstFilePath);
+
+        if (fileInfo.Length < headerLength)
+            throw new InvalidDataException("InvalidPstFile: file is too small to be a valid PST/OST file.");
+
+        var header = new byte[headerLength];
+
+        using (var stream = File.OpenRead(pstFilePath))
+        {
+            var read = 0;
+
+            while (read < headerLength)
+            {
+                var n = stream.Read(header, read, headerLength - read);
+
+                if (n == 0)
+                    break;
+
+                read += n;
+            }
+
+            if (read < headerLength)
+                throw new InvalidDataException("InvalidPstFile: could not read PST/OST file header.");
+        }
+
+        if (header[0] != 0x21 || header[1] != 0x42 || header[2] != 0x44 || header[3] != 0x4E)
+            throw new InvalidDataException("InvalidPstFile: missing PST/OST magic header.");
+
+        var version = BitConverter.ToUInt16(header, 10);
+
+        if (version is not (14 or 15 or 17 or 21 or 23 or 36 or 37))
+            throw new InvalidDataException($"InvalidPstFile: unsupported PST/OST version ({version}).");
+    }
+
+
+
+    private static bool IsRtfBody(string? body)
     {
         if (string.IsNullOrWhiteSpace(body))
             return false;
 
-        return body
-            .TrimStart()
-            .StartsWith(
-                @"{\rtf",
-                StringComparison.OrdinalIgnoreCase);
+        return body.TrimStart().StartsWith(@"{\rtf", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string ConvertRtfToPlainText(
-        string rtf)
+    private readonly record struct RtfState(bool Ignore, bool HtmlRtf, bool HtmlTag, int Uc);
+
+    private sealed record RtfResult(string Text, string? Html);
+
+    private static RtfResult ConvertRtf(string rtf)
     {
-        if (string.IsNullOrWhiteSpace(rtf))
-            return string.Empty;
+        var fromHtml = rtf.Contains(@"\fromhtml", StringComparison.OrdinalIgnoreCase);
 
-        var output =
-            new StringBuilder();
+        var encoding = Encoding.Latin1;
+        var ansi = AnsiCodePageRegex.Match(rtf);
 
-        var ignoreStack =
-            new Stack<bool>();
+        encoding = ansi.Success && int.TryParse(ansi.Groups[1].Value, out var codePage)
+            ? GetEncodingOrLatin1(codePage)
+            : GetEncodingOrLatin1(1252);
 
-        var ignoreCurrentGroup =
-            false;
+        var text = new StringBuilder();
+        var html = new StringBuilder();
+        var pendingBytes = new List<byte>();
+        var stack = new Stack<RtfState>();
+        var state = new RtfState(Ignore: false, HtmlRtf: false, HtmlTag: false, Uc: 1);
+        var skip = 0;
+        var pendingStar = false;
 
-        for (var i = 0;
-             i < rtf.Length;
-             i++)
+        void EmitText(string value)
         {
-            var character =
-                rtf[i];
+            if (state.Ignore)
+                return;
 
-            if (character == '{')
+            if (fromHtml)
             {
-                ignoreStack.Push(
-                    ignoreCurrentGroup);
+                if (!state.HtmlRtf)
+                    html.Append(value);
+            }
+            else
+            {
+                text.Append(value);
+            }
+        }
 
+        void FlushBytes()
+        {
+            if (pendingBytes.Count == 0)
+                return;
+
+            var decoded = encoding.GetString(pendingBytes.ToArray());
+            pendingBytes.Clear();
+            EmitText(decoded);
+        }
+
+        for (var i = 0; i < rtf.Length; i++)
+        {
+            var c = rtf[i];
+
+            if (c == '{')
+            {
+                FlushBytes();
+                stack.Push(state);
+                pendingStar = false;
                 continue;
             }
 
-            if (character == '}')
+            if (c == '}')
             {
-                ignoreCurrentGroup =
-                    ignoreStack.Count > 0 &&
-                    ignoreStack.Pop();
+                FlushBytes();
 
+                if (stack.Count > 0)
+                    state = stack.Pop();
+
+                pendingStar = false;
                 continue;
             }
 
-            if (character != '\\')
-            {
-                if (!ignoreCurrentGroup)
-                    output.Append(character);
+            if (c == '\r' || c == '\n')
+                continue;
 
+            if (c != '\\')
+            {
+                if (skip > 0)
+                {
+                    skip--;
+                    continue;
+                }
+
+                FlushBytes();
+                EmitText(c.ToString());
                 continue;
             }
 
             if (i + 1 >= rtf.Length)
-                continue;
+                break;
 
-            var next =
-                rtf[i + 1];
+            var next = rtf[i + 1];
 
             if (next is '\\' or '{' or '}')
             {
-                if (!ignoreCurrentGroup)
-                    output.Append(next);
-
                 i++;
 
+                if (skip > 0)
+                {
+                    skip--;
+                    continue;
+                }
+
+                FlushBytes();
+                EmitText(next.ToString());
                 continue;
             }
 
             if (next == '*')
             {
-                ignoreCurrentGroup =
-                    true;
-
+                pendingStar = true;
                 i++;
+                continue;
+            }
+
+            if (next == '\'')
+            {
+                if (i + 3 < rtf.Length &&
+                    byte.TryParse(
+                        rtf.AsSpan(i + 2, 2),
+                        NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture,
+                        out var byteValue))
+                {
+                    if (skip > 0)
+                        skip--;
+                    else if (!state.Ignore)
+                        pendingBytes.Add(byteValue);
+
+                    i += 3;
+                }
+                else
+                {
+                    i++;
+                }
 
                 continue;
             }
 
             if (next == '~')
             {
-                if (!ignoreCurrentGroup)
-                    output.Append(' ');
-
+                FlushBytes();
+                EmitText(" ");
                 i++;
-
-                continue;
-            }
-
-            if (next == '-')
-            {
-                if (!ignoreCurrentGroup)
-                    output.Append('-');
-
-                i++;
-
                 continue;
             }
 
             if (next == '_')
             {
-                if (!ignoreCurrentGroup)
-                    output.Append('-');
-
+                FlushBytes();
+                EmitText("-");
                 i++;
-
                 continue;
             }
 
-            if (next == '\'')
+            if (next == '-')
             {
-                if (i + 3 < rtf.Length)
-                {
-                    var hex =
-                        rtf.Substring(
-                            i + 2,
-                            2);
+                i++;
+                continue;
+            }
 
-                    if (byte.TryParse(
-                            hex,
-                            NumberStyles.HexNumber,
-                            CultureInfo.InvariantCulture,
-                            out var value) &&
-                        !ignoreCurrentGroup)
-                    {
-                        output.Append(
-                            (char)value);
-                    }
+            if (next is '\r' or '\n')
+            {
+                FlushBytes();
 
-                    i += 3;
-                }
+                if (!fromHtml)
+                    EmitText("\n");
 
+                i++;
                 continue;
             }
 
@@ -1803,268 +1553,107 @@ public class XstReaderPstParser : IPstParser
                 continue;
             }
 
-            var controlStart =
-                i + 1;
+            FlushBytes();
 
-            var cursor =
-                controlStart;
+            var wordStart = i + 1;
+            var cursor = wordStart;
 
-            while (
-                cursor < rtf.Length &&
-                char.IsLetter(
-                    rtf[cursor]))
-            {
+            while (cursor < rtf.Length && char.IsAsciiLetter(rtf[cursor]))
                 cursor++;
-            }
 
-            var controlWord =
-                rtf[
-                    controlStart..cursor]
-                    .ToLowerInvariant();
+            var word = rtf[wordStart..cursor].ToLowerInvariant();
 
-            var parameterStart =
-                cursor;
+            var parameterStart = cursor;
 
-            if (
-                cursor < rtf.Length &&
-                (rtf[cursor] == '-' ||
-                 rtf[cursor] == '+'))
-            {
+            if (cursor < rtf.Length && (rtf[cursor] == '-' || rtf[cursor] == '+'))
                 cursor++;
-            }
 
-            while (
-                cursor < rtf.Length &&
-                char.IsDigit(
-                    rtf[cursor]))
-            {
+            while (cursor < rtf.Length && char.IsAsciiDigit(rtf[cursor]))
                 cursor++;
-            }
 
-            var parameter =
-                rtf[
-                    parameterStart..cursor];
+            var parameter = rtf[parameterStart..cursor];
 
-            if (
-                cursor < rtf.Length &&
-                rtf[cursor] == ' ')
+            i = cursor < rtf.Length && rtf[cursor] == ' ' ? cursor : cursor - 1;
+
+            if (pendingStar)
             {
-                /*
-                 * RTF control-word delimiter.
-                 */
+                pendingStar = false;
+
+                state = fromHtml && word == "htmltag"
+                    ? state with { HtmlTag = true }
+                    : state with { Ignore = true };
+
+                continue;
             }
-            else
+
+            if (IsIgnoredRtfDestination(word))
             {
-                cursor--;
+                state = state with { Ignore = true };
+                continue;
             }
 
-            HandleRtfControlWord(
-                output,
-                controlWord,
-                parameter,
-                ref ignoreCurrentGroup);
+            switch (word)
+            {
+                case "htmlrtf":
+                    state = state with { HtmlRtf = parameter != "0" };
+                    break;
 
-            i =
-                cursor;
+                case "uc":
+                    if (int.TryParse(parameter, NumberStyles.Integer, CultureInfo.InvariantCulture, out var uc))
+                        state = state with { Uc = Math.Max(0, uc) };
+                    break;
+
+                case "u":
+                    if (int.TryParse(parameter, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code))
+                    {
+                        if (code < 0)
+                            code += 65536;
+
+                        EmitText(((char)code).ToString());
+                        skip = state.Uc;
+                    }
+                    break;
+
+                case "par":
+                case "line":
+                    if (!fromHtml)
+                        EmitText("\n");
+                    break;
+
+                case "tab":
+                    if (!fromHtml)
+                        EmitText("\t");
+                    break;
+
+                case "emdash": EmitText("—"); break;
+                case "endash": EmitText("–"); break;
+                case "bullet": EmitText("•"); break;
+                case "lquote": EmitText("‘"); break;
+                case "rquote": EmitText("’"); break;
+                case "ldblquote": EmitText("“"); break;
+                case "rdblquote": EmitText("”"); break;
+            }
         }
 
-        var text =
-            output.ToString();
+        FlushBytes();
 
-        text =
-            Regex.Replace(
-                text,
-                @"\r\n|\r|\n",
-                "\n");
+        if (fromHtml)
+        {
+            var extractedHtml = html.ToString();
 
-        text =
-            Regex.Replace(
-                text,
-                @"[ \t]+",
-                " ");
+            return new RtfResult(
+                NormalizeBodyText(StripHtml(extractedHtml)),
+                string.IsNullOrWhiteSpace(extractedHtml) ? null : extractedHtml);
+        }
 
-        text =
-            Regex.Replace(
-                text,
-                @"\n\s+",
-                "\n");
-
-        text =
-            Regex.Replace(
-                text,
-                @"(\n\s*){3,}",
-                "\n\n");
-
-        return NormalizeWhitespace(
-            text);
+        return new RtfResult(NormalizeBodyText(text.ToString()), null);
     }
 
-    private static void HandleRtfControlWord(
-        StringBuilder output,
-        string controlWord,
-        string parameter,
-        ref bool ignoreCurrentGroup)
-    {
-        if (IsIgnoredRtfDestination(
-                controlWord))
-        {
-            ignoreCurrentGroup =
-                true;
+    private static bool IsIgnoredRtfDestination(string word) =>
+        word is
+            "fonttbl" or "colortbl" or "stylesheet" or "info" or "pict" or "object" or
+            "generator" or "xmlnstbl" or "datastore" or "themedata" or "colorschememapping" or
+            "listtable" or "listoverridetable" or "rsidtbl" or "latentstyles" or "header" or "footer";
 
-            return;
-        }
-
-        if (ignoreCurrentGroup)
-            return;
-
-        switch (controlWord)
-        {
-            case "par":
-            case "line":
-                output.AppendLine();
-                return;
-
-            case "tab":
-                output.Append('\t');
-                return;
-
-            case "emdash":
-                output.Append('—');
-                return;
-
-            case "endash":
-                output.Append('–');
-                return;
-
-            case "bullet":
-                output.Append('•');
-                return;
-
-            case "lquote":
-                output.Append('‘');
-                return;
-
-            case "rquote":
-                output.Append('’');
-                return;
-
-            case "ldblquote":
-                output.Append('“');
-                return;
-
-            case "rdblquote":
-                output.Append('”');
-                return;
-
-            case "u":
-                AppendUnicodeCharacter(
-                    output,
-                    parameter);
-
-                return;
-        }
-    }
-
-    private static bool IsIgnoredRtfDestination(
-        string controlWord)
-    {
-        return controlWord is
-            "fonttbl" or
-            "colortbl" or
-            "stylesheet" or
-            "info" or
-            "pict" or
-            "object" or
-            "generator" or
-            "xmlnstbl" or
-            "datastore" or
-            "themedata" or
-            "colorschememapping";
-    }
-
-    private static void AppendUnicodeCharacter(
-        StringBuilder output,
-        string parameter)
-    {
-        if (!int.TryParse(
-                parameter,
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out var value))
-        {
-            return;
-        }
-
-        if (value < 0)
-            value += 65536;
-
-        try
-        {
-            output.Append(
-                char.ConvertFromUtf32(
-                    value));
-        }
-        catch
-        {
-            /*
-             * Ignore invalid unicode escape.
-             */
-        }
-    }
-
-    private static void ValidatePstHeader(
-        string pstFilePath)
-    {
-        const int headerLength = 4;
-
-        var fileInfo =
-            new FileInfo(
-                pstFilePath);
-
-        if (fileInfo.Length < headerLength)
-        {
-            throw new InvalidDataException(
-                "InvalidPstFile: file is too small to be a valid PST/OST file.");
-        }
-
-        var header =
-            new byte[headerLength];
-
-        using var stream =
-            File.OpenRead(
-                pstFilePath);
-
-        var bytesRead =
-            stream.Read(
-                header,
-                0,
-                header.Length);
-
-        if (bytesRead < headerLength)
-        {
-            throw new InvalidDataException(
-                "InvalidPstFile: could not read PST/OST file header.");
-        }
-
-        /*
-         * PST/OST files start with:
-         *
-         * 21 42 44 4E = !BDN
-         */
-        var hasXstMagicHeader =
-            header[0] == 0x21 &&
-            header[1] == 0x42 &&
-            header[2] == 0x44 &&
-            header[3] == 0x4E;
-
-        if (!hasXstMagicHeader)
-        {
-            throw new InvalidDataException(
-                "InvalidPstFile: missing PST/OST magic header.");
-        }
-    }
-
-    private sealed record BodyExtractionResult(
-        string? BodyText,
-        string? BodyHtml);
+    private sealed record BodyExtractionResult(string? BodyText, string? BodyHtml);
 }
