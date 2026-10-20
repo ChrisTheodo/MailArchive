@@ -35,4 +35,46 @@ public class MailArchiveDbContext : DbContext, IMailArchiveDbContext
 
         base.OnModelCreating(modelBuilder);
     }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        RemoveNulCharacters();
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        RemoveNulCharacters();
+
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        RemoveNulCharacters();
+
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    /// <summary>
+    /// Η PostgreSQL δεν δέχεται τον χαρακτήρα NUL (0x00) σε στήλες κειμένου.
+    /// Δίχτυ ασφαλείας: καθαρίζει όλα τα string πριν την αποθήκευση.
+    /// </summary>
+    private void RemoveNulCharacters()
+    {
+        foreach (var entry in ChangeTracker.Entries()
+                     .Where(e => e.State is EntityState.Added or EntityState.Modified))
+        {
+            foreach (var property in entry.Properties)
+            {
+                if (property.CurrentValue is string text && text.Contains('\0'))
+                {
+                    property.CurrentValue = text.Replace("\0", string.Empty);
+                }
+            }
+        }
+    }
 }
