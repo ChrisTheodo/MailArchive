@@ -32,6 +32,6 @@ public class MailboxConfiguration : IEntityTypeConfiguration<Mailbox>
             .HasMany(x => x.Emails)
             .WithOne(x => x.Mailbox)
             .HasForeignKey(x => x.MailboxId)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
