@@ -30,7 +30,7 @@ public sealed class PstParseReport
     internal void Warn(string message)
     {
         if (_warnings.Count < MaxWarnings)
-            _warnings.Add(message);
+            _warnings.Add(message.Replace("\0", string.Empty));
     }
 }
 
@@ -403,7 +403,7 @@ public class XstReaderPstParser : IPstParser
             SenderName: senderName,
             Subject: subject,
             BodyText: CleanBody(body.BodyText),
-            BodyHtml: string.IsNullOrWhiteSpace(body.BodyHtml) ? null : body.BodyHtml,
+            BodyHtml: string.IsNullOrWhiteSpace(body.BodyHtml) ? null : StripNulls(body.BodyHtml),
             SentAt: sentAt,
             ReceivedAt: receivedAt,
             Recipients: recipients,
@@ -557,10 +557,11 @@ public class XstReaderPstParser : IPstParser
                 return null;
 
             case string text:
-                return string.IsNullOrWhiteSpace(text) ? null : text;
+                var cleanText = StripNulls(text);
+                return string.IsNullOrWhiteSpace(cleanText) ? null : cleanText;
 
             case byte[] bytes:
-                return DecodeBodyBytes(bytes);
+                return StripNulls(DecodeBodyBytes(bytes));
 
             default:
                 return SafeToString(value);
@@ -1077,13 +1078,23 @@ public class XstReaderPstParser : IPstParser
 
 
 
+    /// <summary>
+    /// Η PostgreSQL δεν δέχεται τον χαρακτήρα NUL (0x00) σε στήλες κειμένου.
+    /// </summary>
+    private static string? StripNulls(string? value) =>
+        value is null || value.IndexOf('\0') < 0
+            ? value
+            : value.Replace("\0", string.Empty);
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
+
     private static string? ValueToString(object? value)
     {
         return value switch
         {
             null => null,
-            string text when string.IsNullOrWhiteSpace(text) => null,
-            string text => text.Trim(),
+            string text => NullIfBlank(StripNulls(text)?.Trim()),
             DateTime dateTime => dateTime.ToString("O", CultureInfo.InvariantCulture),
             DateTimeOffset offset => offset.ToString("O", CultureInfo.InvariantCulture),
             byte[] => null,
@@ -1093,7 +1104,7 @@ public class XstReaderPstParser : IPstParser
 
     private static string? SafeToString(object value)
     {
-        var text = value.ToString()?.Trim();
+        var text = StripNulls(value.ToString())?.Trim();
 
         if (string.IsNullOrWhiteSpace(text))
             return null;
@@ -1148,6 +1159,8 @@ public class XstReaderPstParser : IPstParser
 
     private static string? CleanNullable(string? value)
     {
+        value = StripNulls(value);
+
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
@@ -1169,7 +1182,7 @@ public class XstReaderPstParser : IPstParser
         if (string.IsNullOrWhiteSpace(value))
             return string.Empty;
 
-        var text = value
+        var text = StripNulls(value)!
             .Replace("\r\n", "\n")
             .Replace('\r', '\n')
             .Replace('\u00A0', ' ');
