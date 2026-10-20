@@ -20,7 +20,7 @@ defineProps({ expanded: Boolean, isMobile: Boolean })
 const mailboxStore = useMailboxStore()
 const route = useRoute()
 const router = useRouter()
-const MAILBOX_SHOW_COUNT = 4
+const MAILBOX_SHOW_COUNT = 6
 const mailboxActions: MailboxAction[] = [
   {
     id: 'delete_mailbox',
@@ -48,6 +48,10 @@ const mailboxToDelete = ref<MyMailboxResponse | null>(null)
 // METHODS
 function toggleShowAllMailboxes() {
   showAllMailboxes.value = !showAllMailboxes.value
+}
+
+function isMailboxImporting(mailbox: MyMailboxResponse) {
+  return mailbox.runningImports > 0
 }
 
 function isMailboxActive(mailboxId: string) {
@@ -85,12 +89,30 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
         <v-list-item
           v-for="mailbox in filteredMailboxes"
           :key="mailbox.mailboxId"
-          :to="{ name: 'mailbox', params: { mailbox: mailbox.mailboxId } }"
+          :to="
+            isMailboxImporting(mailbox)
+              ? undefined
+              : { name: 'mailbox', params: { mailbox: mailbox.mailboxId } }
+          "
           :active="isMailboxActive(mailbox.mailboxId)"
           :title="mailbox.displayName"
+          :disabled="isMailboxImporting(mailbox)"
           prepend-icon="i-mdi-inbox-outline"
           rounded="lg"
         >
+          <v-overlay
+            :model-value="isMailboxImporting(mailbox)"
+            class="align-center justify-center"
+            scrim="grey"
+            scroll-strategy="none"
+            :close-on-back="false"
+            contained
+            persistent
+            no-click-animation
+          >
+            <v-progress-circular color="primary" size="20" width="2" indeterminate />
+          </v-overlay>
+
           <template #append>
             <div class="count text-medium-emphasis d-flex align-center ga-1">
               <span v-if="mailbox.totalEmails">{{ mailbox.totalEmails }}</span>
