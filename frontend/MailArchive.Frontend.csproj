@@ -1,0 +1,174 @@
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+    <ProjectGuid>{B33791FF-C2DA-C4E5-DB25-5413C46A4F01}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <NoStandardLibraries>false</NoStandardLibraries>
+    <AssemblyName>WindowsApplication</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkProfile>Client</TargetFrameworkProfile>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RootNamespace>MailArchive.Frontend</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".editorconfig" />
+    <None Include=".env.development" />
+    <None Include=".gitattributes" />
+    <None Include=".gitignore" />
+    <None Include=".oxlintrc.json" />
+    <None Include=".prettierrc.json" />
+    <None Include=".vscode\extensions.json" />
+    <None Include=".vs\frontend.slnx\FileContentIndex\cce38bd6-a600-4fae-ab60-40d89d27f4c8.vsidx" />
+    <None Include=".vs\frontend.slnx\v18\.wsuo" />
+    <None Include=".vs\frontend.slnx\v18\DocumentLayout.json" />
+    <None Include=".vs\slnx.sqlite" />
+    <None Include=".vs\VSWorkspaceState.json" />
+    <None Include="e2e\tsconfig.json" />
+    <None Include="package-lock.json" />
+    <None Include="package.json" />
+    <None Include="README.md" />
+    <None Include="src\App.vue" />
+    <None Include="src\components\AppSidebar.vue" />
+    <None Include="src\components\AppSidebarMenu.vue" />
+    <None Include="src\components\ConfirmDialog.vue" />
+    <None Include="src\components\ImportDialog.vue" />
+    <None Include="src\components\NotFound404.vue" />
+    <None Include="src\components\ShowAllListItem.vue" />
+    <None Include="src\views\DashboardView.vue" />
+    <None Include="src\views\EmailDetail.vue" />
+    <None Include="src\views\EmailList.vue" />
+    <None Include="src\views\LoginView.vue" />
+    <None Include="src\views\MainLayout.vue" />
+    <None Include="tsconfig.app.json" />
+    <None Include="tsconfig.json" />
+    <None Include="tsconfig.node.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <TypeScriptCompile Include="e2e\vue.spec.ts" />
+    <TypeScriptCompile Include="env.d.ts" />
+    <TypeScriptCompile Include="eslint.config.ts" />
+    <TypeScriptCompile Include="playwright.config.ts" />
+    <TypeScriptCompile Include="src\composables\axios-api.ts" />
+    <TypeScriptCompile Include="src\composables\useDeleteRequest.ts" />
+    <TypeScriptCompile Include="src\composables\useGetErrorMessage.ts" />
+    <TypeScriptCompile Include="src\composables\useGetRequest.ts" />
+    <TypeScriptCompile Include="src\composables\usePostRequest.ts" />
+    <TypeScriptCompile Include="src\constants\api-urls.ts" />
+    <TypeScriptCompile Include="src\constants\layout\app-side-bar.ts" />
+    <TypeScriptCompile Include="src\constants\storage-keys.ts" />
+    <TypeScriptCompile Include="src\main.ts" />
+    <TypeScriptCompile Include="src\plugins\vuetify.ts" />
+    <TypeScriptCompile Include="src\router\index.ts" />
+    <TypeScriptCompile Include="src\shims-vue.d.ts" />
+    <TypeScriptCompile Include="src\stores\auth.ts" />
+    <TypeScriptCompile Include="src\stores\email.ts" />
+    <TypeScriptCompile Include="src\stores\import.ts" />
+    <TypeScriptCompile Include="src\stores\mailbox.ts" />
+    <TypeScriptCompile Include="src\stores\snackbar-messages.ts" />
+    <TypeScriptCompile Include="src\stores\user.ts" />
+    <TypeScriptCompile Include="src\types\auth\current-user-response.ts" />
+    <TypeScriptCompile Include="src\types\auth\login-request.ts" />
+    <TypeScriptCompile Include="src\types\auth\login-response.ts" />
+    <TypeScriptCompile Include="src\types\auth\logout-request.ts" />
+    <TypeScriptCompile Include="src\types\auth\refresh-token-request.ts" />
+    <TypeScriptCompile Include="src\types\common\api-response.ts" />
+    <TypeScriptCompile Include="src\types\common\paged-result.ts" />
+    <TypeScriptCompile Include="src\types\date-time.ts" />
+    <TypeScriptCompile Include="src\types\emails\delete-email-request.ts" />
+    <TypeScriptCompile Include="src\types\emails\delete-mailbox-request.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-attachment-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-details-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-list-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-query-parameters.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-recipient-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\email-search-snippet.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-attachments-by-id-request.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-attachments-by-id-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-email-by-id-request.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-email-by-id-response.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-email-list-request.ts" />
+    <TypeScriptCompile Include="src\types\emails\get-email-list-response.ts" />
+    <TypeScriptCompile Include="src\types\entities\attachment.ts" />
+    <TypeScriptCompile Include="src\types\entities\email-recipient.ts" />
+    <TypeScriptCompile Include="src\types\entities\email.ts" />
+    <TypeScriptCompile Include="src\types\entities\import-batch.ts" />
+    <TypeScriptCompile Include="src\types\entities\import-error.ts" />
+    <TypeScriptCompile Include="src\types\entities\mailbox.ts" />
+    <TypeScriptCompile Include="src\types\entities\user.ts" />
+    <TypeScriptCompile Include="src\types\imports\import-batch-response.ts" />
+    <TypeScriptCompile Include="src\types\imports\import-batch-status.ts" />
+    <TypeScriptCompile Include="src\types\imports\import-get-by-id-request.ts" />
+    <TypeScriptCompile Include="src\types\imports\import-progress-response.ts" />
+    <TypeScriptCompile Include="src\types\mailboxes\create-mailbox-request.ts" />
+    <TypeScriptCompile Include="src\types\mailboxes\mailbox-get-by-id-request.ts" />
+    <TypeScriptCompile Include="src\types\mailboxes\mailbox-response.ts" />
+    <TypeScriptCompile Include="src\types\mailboxes\mailbox-source-type.ts" />
+    <TypeScriptCompile Include="src\types\mailboxes\update-mailbox-request.ts" />
+    <TypeScriptCompile Include="src\types\me\me-import-actions-cancel-request.ts" />
+    <TypeScriptCompile Include="src\types\me\me-import-actions-cancel-response.ts" />
+    <TypeScriptCompile Include="src\types\me\me-import-upload-request.ts" />
+    <TypeScriptCompile Include="src\types\me\me-imports-params.ts" />
+    <TypeScriptCompile Include="src\types\me\me-mailboxes-request.ts" />
+    <TypeScriptCompile Include="src\types\me\me-mailboxes-response.ts" />
+    <TypeScriptCompile Include="src\types\me\my-import-list-response.ts" />
+    <TypeScriptCompile Include="src\types\me\my-import-progress-response.ts" />
+    <TypeScriptCompile Include="src\types\me\my-import-response.ts" />
+    <TypeScriptCompile Include="src\types\me\my-mailbox-create-request.ts" />
+    <TypeScriptCompile Include="src\types\me\my-mailbox-list-response.ts" />
+    <TypeScriptCompile Include="src\types\me\my-mailbox-response.ts" />
+    <TypeScriptCompile Include="src\types\recipient-type.ts" />
+    <TypeScriptCompile Include="src\types\users\create-user-request.ts" />
+    <TypeScriptCompile Include="src\types\users\update-user-request.ts" />
+    <TypeScriptCompile Include="src\types\users\user-response.ts" />
+    <TypeScriptCompile Include="src\types\users\user-role.ts" />
+    <TypeScriptCompile Include="src\utils\date.ts" />
+    <TypeScriptCompile Include="src\utils\scrollbar-width.ts" />
+    <TypeScriptCompile Include="vite.config.ts" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="index.html" />
+    <Content Include="public\favicon.ico" />
+    <Content Include="src\assets\toolbox-logo.svg" />
+    <Content Include="src\styles\scrollbar.css" />
+    <Content Include="uno.config.js" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include=".vs\MailArchive.Frontend.slnx\v18\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSHARP.Targets" />
+  <ProjectExtensions>
+    <VisualStudio AllowExistingFolder="true" />
+  </ProjectExtensions>
+</Project>
