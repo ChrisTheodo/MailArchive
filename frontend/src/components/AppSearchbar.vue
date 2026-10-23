@@ -19,7 +19,6 @@ const mailboxStore = useMailboxStore()
 const route = useRoute()
 const router = useRouter()
 const SEARCH_DEBOUNCE_MS = 400
-// v-select treats a null value as "nothing selected", so the tri-state maps through strings
 const ATTACHMENT_OPTIONS = [
   { title: 'Όλα', value: 'any' },
   { title: 'Με συνημμένα', value: 'true' },
@@ -34,7 +33,6 @@ const searchField = ref<VTextField>()
 const isFilterMenuOpen = ref(false)
 const appliedFilters = computed(() => filtersFromQuery(route.query))
 const activeFilterCount = computed(() => countActiveFilters(appliedFilters.value))
-// Edited in the panel and only written to the URL on "Αναζήτηση"
 const draftFilters = ref<EmailSearchFilters>({ ...EMPTY_SEARCH_FILTERS })
 
 const mailboxOptions = computed(() =>
@@ -127,7 +125,6 @@ watch(
   { immediate: true },
 )
 
-// Opening the panel always starts from what is currently applied
 watch(isFilterMenuOpen, (isOpen) => {
   if (isOpen) draftFilters.value = { ...appliedFilters.value }
 })
@@ -154,7 +151,6 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     @click:clear="onSearchClear"
   >
     <template #append-inner>
-      <!-- target makes the panel open under the whole search bar, at its width -->
       <v-menu
         v-model="isFilterMenuOpen"
         :target="searchField"
