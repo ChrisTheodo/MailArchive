@@ -6,6 +6,11 @@ import { useMailboxStore } from '@/stores/mailbox'
 import { formatShortDate } from '@/utils/date'
 import type { EmailListResponse } from '@/types/emails/email-list-response'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import {
+  countActiveFilters,
+  filtersFromQuery,
+  filtersToApiParams,
+} from '@/utils/email-search-filters'
 
 const props = defineProps<{ mailbox?: string }>()
 
@@ -26,6 +31,10 @@ const PAGE_SIZE_OPTIONS = [
 // STATE
 const isSearch = computed(() => route.name === 'search')
 const searchQuery = computed(() => String(route.query.q ?? '').trim())
+const searchFilters = computed(() => filtersFromQuery(route.query))
+const hasSearchCriteria = computed(
+  () => Boolean(searchQuery.value) || countActiveFilters(searchFilters.value) > 0,
+)
 const hasList = computed(() => isSearch.value || Boolean(props.mailbox))
 const result = computed(() => (isSearch.value ? emailStore.emailsFromSearch : emailStore.emails))
 const isLoading = computed(() =>
@@ -71,8 +80,14 @@ function load() {
   const query = { page: page.value, pageSize: pageSize.value }
 
   if (isSearch.value) {
-    if (searchQuery.value) emailStore.searchEmails(searchQuery.value, query)
-    else emailStore.clearSearch()
+    if (hasSearchCriteria.value) {
+      emailStore.searchEmails(searchQuery.value, {
+        ...query,
+        ...filtersToApiParams(searchFilters.value),
+      })
+    } else {
+      emailStore.clearSearch()
+    }
     return
   }
 
@@ -137,7 +152,18 @@ async function confirmDeleteEmail() {
 }
 
 // WATCHERS
-watch([() => props.mailbox, page, isSearch, searchQuery, pageSize], load, { immediate: true })
+watch(
+  [
+    () => props.mailbox,
+    page,
+    isSearch,
+    searchQuery,
+    pageSize,
+    () => JSON.stringify(searchFilters.value),
+  ],
+  load,
+  { immediate: true },
+)
 
 if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
 </script>
