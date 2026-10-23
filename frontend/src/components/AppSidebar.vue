@@ -116,7 +116,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           <template #append>
             <div class="count text-medium-emphasis d-flex align-center ga-1">
               <span v-if="mailbox.totalEmails">{{ mailbox.totalEmails }}</span>
-              <v-menu>
+              <v-menu v-if="!isMailboxImporting(mailbox)">
                 <template #activator="{ props: menuProps, isActive: menuOpen }">
                   <v-icon
                     v-bind="menuProps"

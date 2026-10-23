@@ -10,6 +10,7 @@ import type { DeleteMailboxRequest } from '@/types/emails/delete-mailbox-request
 import type { MyMailboxCreateRequest } from '@/types/me/my-mailbox-create-request'
 import { usePostRequest } from '@/composables/usePostRequest'
 import type { MailboxResponse } from '@/types/mailboxes/mailbox-response'
+import type { ApiCallConfig } from '@/types/common/api-call-config'
 
 export const useMailboxStore = defineStore('mailbox', () => {
   // STATE
@@ -65,7 +66,7 @@ export const useMailboxStore = defineStore('mailbox', () => {
     if (mailbox) mailbox.totalEmails = Math.max(0, mailbox.totalEmails - 1)
   }
 
-  async function createMailbox(request: MyMailboxCreateRequest) {
+  async function createMailbox(request: MyMailboxCreateRequest, config?: ApiCallConfig) {
     const res = await createRequest.execute(API_URLS.me.meMailboxes.post, { requestBody: request })
     if (!res) {
       snackbarMessagesStore.addErrorMessage('Αποτυχία δημιουργίας mailbox')
@@ -73,6 +74,11 @@ export const useMailboxStore = defineStore('mailbox', () => {
     }
 
     await fetchMailboxes()
+
+    if (!config?.showSnackbarSuccessMessage) {
+      return res
+    }
+
     snackbarMessagesStore.addSuccessMessage('Το mailbox δημιουργήθηκε επιτυχώς')
     return res
   }
@@ -81,7 +87,7 @@ export const useMailboxStore = defineStore('mailbox', () => {
     return mailboxes.value.find((m) => m.mailboxId === mailboxId) ?? null
   }
 
-  async function deleteMailbox(request: DeleteMailboxRequest) {
+  async function deleteMailbox(request: DeleteMailboxRequest, config?: ApiCallConfig) {
     const res = await deleteRequest.execute(API_URLS.mailboxes.delete(request))
     if (!res) {
       snackbarMessagesStore.addErrorMessage('Αποτυχία διαγραφής mailbox')
@@ -93,6 +99,10 @@ export const useMailboxStore = defineStore('mailbox', () => {
 
     if (selectedMailbox.value?.mailboxId === request.id) {
       selectedMailbox.value = null
+    }
+
+    if (!config?.showSnackbarSuccessMessage) {
+      return true
     }
 
     snackbarMessagesStore.addSuccessMessage('Το mailbox διαγράφηκε επιτυχώς')
