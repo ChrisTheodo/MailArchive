@@ -33,6 +33,7 @@ export const useUserStore = defineStore('user', () => {
     isMeLoading: meRequest.isLoading,
     isMeError: meRequest.error,
     currentUser,
+    userType,
     $reset,
   }
 })

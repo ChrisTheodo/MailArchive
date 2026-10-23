@@ -21,7 +21,10 @@ const formRef = useTemplateRef('form')
 const selectedFile = computed(() => (Array.isArray(files.value) ? files.value[0] : files.value))
 const isSubmitting = computed(
   () =>
-    mailboxStore.isCreatingMailbox || importStore.isUploading || importStore.isStartingProcessing,
+    mailboxStore.isCreatingMailbox ||
+    mailboxStore.isDeletingMailbox ||
+    importStore.isUploading ||
+    importStore.isStartingProcessing,
 )
 
 // METHODS
@@ -66,26 +69,28 @@ async function resolveMailboxId() {
   if (mailboxMode.value === 'existing') return mailboxId.value
 
   const mailbox = await mailboxStore.createMailbox({ displayName: newMailboxName.value.trim() })
-  if (!mailbox) return null
-
-  // Keep the created mailbox selected if the upload fails and the user retries
-  mailboxMode.value = 'existing'
-  mailboxId.value = mailbox.id
-  return mailbox.id
+  return mailbox?.id ?? null
 }
 
 async function confirmUpload(isActive: Ref<boolean>) {
   const result = await formRef.value?.validate()
-  if (!result?.valid || !mailboxId.value || !selectedFile.value) return
+  if (!result?.valid || !selectedFile.value) return
 
+  const isNewMailbox = mailboxMode.value === 'new'
   const targetMailboxId = await resolveMailboxId()
   if (!targetMailboxId) return
 
   const batch = await importStore.importPstFile({
-    mailboxId: mailboxId.value,
+    mailboxId: targetMailboxId,
     file: selectedFile.value,
   })
-  if (!batch) return
+
+  if (!batch) {
+    if (isNewMailbox) {
+      await mailboxStore.deleteMailbox({ id: targetMailboxId })
+    }
+    return
+  }
 
   await importStore.processImportInBackground(batch.id)
   isActive.value = false
