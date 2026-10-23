@@ -150,14 +150,18 @@ public class EmailService : IEmailService
 
         if (parameters.FromDate.HasValue)
         {
+            var fromDate = ToUtc(parameters.FromDate.Value);
+
             query = query.Where(x =>
-                (x.ReceivedAt ?? x.SentAt ?? x.CreatedAt) >= parameters.FromDate.Value);
+                (x.ReceivedAt ?? x.SentAt ?? x.CreatedAt) >= fromDate);
         }
 
         if (parameters.ToDate.HasValue)
         {
+            var toDate = ToUtc(parameters.ToDate.Value);
+
             query = query.Where(x =>
-                (x.ReceivedAt ?? x.SentAt ?? x.CreatedAt) <= parameters.ToDate.Value);
+                (x.ReceivedAt ?? x.SentAt ?? x.CreatedAt) <= toDate);
         }
 
         if (!string.IsNullOrWhiteSpace(parameters.Sender))
@@ -210,6 +214,16 @@ public class EmailService : IEmailService
         }
 
         return query;
+    }
+
+    private static DateTime ToUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
     }
 
     private static IQueryable<Email> ApplySearch(
