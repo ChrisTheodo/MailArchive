@@ -42,6 +42,7 @@ const isLoading = computed(() =>
 )
 const loadError = computed(() => (isSearch.value ? emailStore.searchError : emailStore.emailsError))
 
+const pageNumberInput = ref(Number(route.query.page) || 1)
 const page = computed(() => Number(route.query.page) || 1)
 const pageSize = computed(() => {
   const size = Number(route.query.pageSize)
@@ -74,6 +75,8 @@ const rangeText = computed(() => {
   const to = Math.min(page.value * size, totalCount.value)
   return `${from}–${to} of ${totalCount.value}`
 })
+
+let pageDebounceTimer: ReturnType<typeof setTimeout> | undefined
 
 // METHODS
 function load() {
@@ -151,6 +154,23 @@ async function confirmDeleteEmail() {
   }
 }
 
+function onPageInput(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return
+
+  // Ενημερώνουμε άμεσα το πεδίο
+  pageNumberInput.value = value
+
+  // Ακυρώνουμε την προηγούμενη αλλαγή
+  if (pageDebounceTimer) {
+    clearTimeout(pageDebounceTimer)
+  }
+
+  // Περιμένουμε 400ms πριν αλλάξουμε σελίδα
+  pageDebounceTimer = setTimeout(() => {
+    goToPage(value)
+  }, 400)
+}
+
 // WATCHERS
 watch(
   [
@@ -165,6 +185,10 @@ watch(
   { immediate: true },
 )
 
+watch(page, (newPage) => {
+  pageNumberInput.value = newPage
+})
+
 if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
 </script>
 
@@ -172,7 +196,22 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
   <div class="toolbar">
     <span class="heading">{{ heading }}</span>
     <v-spacer />
-    <template v-if="hasList">
+    <template v-if="hasList && !isLoading">
+      <v-container class="w-auto align-items-center align-content-center">
+        <v-number-input
+          :model-value="pageNumberInput"
+          @update:model-value="onPageInput"
+          label="Σελίδα"
+          density="compact"
+          :max="totalPages"
+          :min="1"
+          inset
+          variant="outlined"
+          control-variant="stacked"
+          :precision="0"
+          hide-details
+        />
+      </v-container>
       <span class="text-medium-emphasis small">{{ rangeText }}</span>
       <template v-if="totalCount">
         <v-pagination
@@ -230,8 +269,6 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
     item-value="id"
     class="scroll scrollbar"
   >
-    <template #header> </template>
-
     <template #default="{ items: rows }">
       <v-list class="py-0" lines="one">
         <template v-for="{ raw: item } in rows" :key="item.id">
