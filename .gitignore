@@ -16,3 +16,4 @@ build/
 # Import attachments
 **/storage/
 seed-storage/
+/backend/MailArchive.API/appsettings.json
