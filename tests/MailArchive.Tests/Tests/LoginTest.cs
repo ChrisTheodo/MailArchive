@@ -3,7 +3,7 @@ using Microsoft.Playwright.NUnit;
 using NUnit.Framework;
 using System.Threading.Tasks;
 
-namespace MailArchive.Tests
+namespace MailArchive.Tests.Tests
 {
     public class LoginTests : PageTest
     {
@@ -85,5 +85,6 @@ namespace MailArchive.Tests
 
             await Expect(Page).Not.ToHaveURLAsync("http://localhost:5173/");
         }
+
     }
 }
