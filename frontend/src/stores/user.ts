@@ -4,11 +4,12 @@ import type { CurrentUserResponse } from '@/types/auth/current-user-response'
 import { useGetRequest } from '@/composables/useGetRequest'
 import { API_URLS } from '@/constants/api-urls'
 import { useSnackbarMessagesStore } from './snackbar-messages'
+import { UserRole } from '@/types/users/user-role'
 
 export const useUserStore = defineStore('user', () => {
   // STATE
   const currentUser = ref<CurrentUserResponse | null>(null)
-  const userType = computed(() => currentUser.value?.role)
+  const isAdmin = computed(() => currentUser.value?.role === UserRole.Admin)
 
   // CONSTANTS
   const meRequest = useGetRequest<CurrentUserResponse>()
@@ -33,7 +34,7 @@ export const useUserStore = defineStore('user', () => {
     isMeLoading: meRequest.isLoading,
     isMeError: meRequest.error,
     currentUser,
-    userType,
+    isAdmin,
     $reset,
   }
 })

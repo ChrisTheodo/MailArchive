@@ -3,7 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useEmailStore } from '@/stores/email'
 import { useMailboxStore } from '@/stores/mailbox'
 import { useRouter, useRoute } from 'vue-router'
-import type { SubmitEventPromise } from 'vuetify'
+import { type SubmitEventPromise, useDate } from 'vuetify'
 import type { VTextField } from 'vuetify/components'
 import {
   EMPTY_SEARCH_FILTERS,
@@ -24,6 +24,7 @@ const ATTACHMENT_OPTIONS = [
   { title: 'Με συνημμένα', value: 'true' },
   { title: 'Χωρίς συνημμένα', value: 'false' },
 ]
+const dateAdapter = useDate()
 
 // STATE
 const aiSearchActive = ref(false)
@@ -34,6 +35,25 @@ const isFilterMenuOpen = ref(false)
 const appliedFilters = computed(() => filtersFromQuery(route.query))
 const activeFilterCount = computed(() => countActiveFilters(appliedFilters.value))
 const draftFilters = ref<EmailSearchFilters>({ ...EMPTY_SEARCH_FILTERS })
+const fromDateInput = computed({
+  get() {
+    const value = draftFilters.value.fromDate
+    return value ? dateAdapter.parseISO(value) : null
+  },
+  set(value) {
+    draftFilters.value.fromDate = value ? dateAdapter.toISO(value).slice(0, 10) : null
+  },
+})
+
+const toDateInput = computed({
+  get() {
+    const value = draftFilters.value.toDate
+    return value ? dateAdapter.parseISO(value) : null
+  },
+  set(value) {
+    draftFilters.value.toDate = value ? dateAdapter.toISO(value).slice(0, 10) : null
+  },
+})
 
 const mailboxOptions = computed(() =>
   mailboxStore.mailboxes.map((m) => ({ title: m.displayName, value: m.mailboxId })),
@@ -50,10 +70,10 @@ const attachmentsFilter = computed({
 })
 
 const toDateRules = [
-  (value: string | null) =>
+  (value: Date | null) =>
     !value ||
     !draftFilters.value.fromDate ||
-    value >= draftFilters.value.fromDate ||
+    dateAdapter.toISO(value).slice(0, 10) >= draftFilters.value.fromDate ||
     'Η ημερομηνία λήξης δεν μπορεί να είναι πριν την έναρξη',
 ]
 
@@ -169,7 +189,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 
         <v-card rounded="xl" class="pa-4">
           <v-form @submit.prevent="applyFilters">
-            <v-row dense>
+            <v-row density="compact">
               <v-col cols="12" sm="6">
                 <v-text-field
                   v-model="draftFilters.sender"
@@ -201,25 +221,25 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                 />
               </v-col>
               <v-col cols="12" sm="6">
-                <v-text-field
-                  v-model="draftFilters.fromDate"
+                <v-date-input
+                  v-model="fromDateInput"
                   label="Από ημερομηνία"
-                  type="date"
-                  variant="outlined"
                   density="compact"
+                  input-format="dd/MM/yyyy"
+                  variant="outlined"
                   hide-details
                   clearable
                 />
               </v-col>
               <v-col cols="12" sm="6">
-                <v-text-field
-                  v-model="draftFilters.toDate"
+                <v-date-input
+                  v-model="toDateInput"
                   label="Έως ημερομηνία"
-                  type="date"
-                  :min="draftFilters.fromDate ?? undefined"
+                  density="compact"
+                  input-format="dd/MM/yyyy"
+                  :min="fromDateInput ?? undefined"
                   :rules="toDateRules"
                   variant="outlined"
-                  density="compact"
                   hide-details="auto"
                   clearable
                 />
