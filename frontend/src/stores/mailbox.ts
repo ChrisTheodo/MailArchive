@@ -11,6 +11,8 @@ import type { MyMailboxCreateRequest } from '@/types/me/my-mailbox-create-reques
 import { usePostRequest } from '@/composables/usePostRequest'
 import type { MailboxResponse } from '@/types/mailboxes/mailbox-response'
 import type { ApiCallConfig } from '@/types/common/api-call-config'
+import { usePutRequest } from '@/composables/usePutRequest'
+import type { UpdateMailboxRequest } from '@/types/mailboxes/update-mailbox-request'
 
 export const useMailboxStore = defineStore('mailbox', () => {
   // STATE
@@ -26,6 +28,7 @@ export const useMailboxStore = defineStore('mailbox', () => {
   const listRequest = useGetRequest<MyMailboxListResponse>()
   const deleteRequest = useDeleteRequest()
   const createRequest = usePostRequest<MyMailboxCreateRequest, MailboxResponse>()
+  const renameRequest = usePutRequest<UpdateMailboxRequest, MailboxResponse>()
 
   async function fetchMailboxes() {
     const res = await listRequest.execute(API_URLS.me.meMailboxes.mailboxes)
@@ -58,6 +61,23 @@ export const useMailboxStore = defineStore('mailbox', () => {
     }
     selectedMailbox.value = mailbox
     return mailbox
+  }
+
+  async function renameMailbox(
+    request: { mailboxId: string; body: UpdateMailboxRequest },
+    config?: ApiCallConfig,
+  ) {
+    const res = renameRequest.execute(API_URLS.mailboxes.putById(request.mailboxId), {
+      requestBody: request.body,
+    })
+
+    if (!res) {
+      snackbarMessagesStore.addErrorMessage('Αποτυχία μετονομασίας mailbox')
+      return null
+    }
+
+    snackbarMessagesStore.addSuccessMessage('Το mailbox μετονομάστηκε επιτυχώς')
+    return res
   }
 
   // Keeps the sidebar count right after an email is deleted, without refetching
@@ -127,8 +147,11 @@ export const useMailboxStore = defineStore('mailbox', () => {
     deleteMailboxError: deleteRequest.error,
     isCreatingMailbox: createRequest.isLoading,
     createMailboxError: createRequest.error,
+    isRenamingMailbox: renameRequest.isLoading,
+    renameMailboxError: renameRequest.error,
     fetchMailboxes,
     fetchMailbox,
+    renameMailbox,
     createMailbox,
     getMailboxById,
     deleteMailbox,

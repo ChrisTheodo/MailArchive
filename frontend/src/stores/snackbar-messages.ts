@@ -21,5 +21,9 @@ export const useSnackbarMessagesStore = defineStore('snackbar-message', () => {
     add({ text, color: 'info', loading: true })
   }
 
-  return { queue, add, addErrorMessage, addSuccessMessage, addLoaderMessage }
+  function $reset() {
+    queue.value = []
+  }
+
+  return { queue, add, addErrorMessage, addSuccessMessage, addLoaderMessage, $reset }
 })

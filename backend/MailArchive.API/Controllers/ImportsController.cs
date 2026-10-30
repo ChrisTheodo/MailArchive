@@ -86,6 +86,7 @@ public class ImportsController : ControllerBase
     [HttpPost("pst/upload")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(1024L * 1024L * 1024L)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 1024L * 1024L * 1024L)]
     public async Task<IActionResult> UploadPstImport(
         [FromForm] Guid mailboxId,
         IFormFile file)

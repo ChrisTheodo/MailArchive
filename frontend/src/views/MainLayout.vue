@@ -54,7 +54,7 @@ function toggleSidebar() {
 
   <v-main>
     <div class="content-wrap">
-      <v-sheet class="content" rounded="xl">
+      <v-sheet class="content rounded-t-xl">
         <router-view />
       </v-sheet>
     </div>

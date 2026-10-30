@@ -9,6 +9,7 @@ interface Props {
   loading?: boolean
   persistent?: boolean
   maxWidth?: string | number
+  confirmVariant?: 'text' | 'flat' | 'elevated' | 'outlined' | 'plain' | 'tonal'
 }
 
 withDefaults(defineProps<Props>(), {
@@ -21,6 +22,7 @@ withDefaults(defineProps<Props>(), {
   loading: false,
   persistent: false,
   maxWidth: 420,
+  confirmVariant: 'flat',
 })
 
 const emit = defineEmits<{
@@ -60,7 +62,12 @@ function onConfirm() {
         <v-btn variant="text" :disabled="loading" @click="onCancel">
           {{ cancelText }}
         </v-btn>
-        <v-btn :color="confirmColor" variant="flat" :loading="loading" @click="onConfirm">
+        <v-btn
+          :color="confirmColor"
+          :variant="confirmVariant"
+          :loading="loading"
+          @click="onConfirm"
+        >
           {{ confirmText }}
         </v-btn>
       </v-card-actions>
