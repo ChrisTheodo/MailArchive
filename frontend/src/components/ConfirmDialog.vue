@@ -59,7 +59,7 @@ function onConfirm() {
 
       <v-card-actions class="px-4 pb-4">
         <v-spacer />
-        <v-btn variant="text" :disabled="loading" @click="onCancel">
+        <v-btn variant="text" :disabled="loading" @click="onCancel" data-testid="cancel-button">
           {{ cancelText }}
         </v-btn>
         <v-btn
@@ -67,6 +67,7 @@ function onConfirm() {
           :variant="confirmVariant"
           :loading="loading"
           @click="onConfirm"
+          data-test-id="confirm-button"
         >
           {{ confirmText }}
         </v-btn>

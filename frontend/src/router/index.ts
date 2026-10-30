@@ -9,7 +9,7 @@ const routes = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { requiresAuth: false },
+    meta: { requiresAuth: false, title: 'Σύνδεση' },
   },
 
   {
@@ -31,13 +31,21 @@ const routes = [
         path: 'dashboard',
         name: 'dashboard',
         component: () => import('@/views/DashboardView.vue'),
+        meta: { title: 'Ταμπλό' },
       },
       {
         path: 'search',
         name: 'search',
         component: EmailList,
+        meta: { title: 'Αναζήτηση' },
       },
-      { path: 'mail/:mailbox', name: 'mailbox', component: EmailList, props: true },
+      {
+        path: 'mail/:mailbox',
+        name: 'mailbox',
+        component: EmailList,
+        props: true,
+        meta: { title: 'Αρχική' },
+      },
       {
         path: 'mail/:mailbox/:id',
         name: 'mail',
@@ -49,6 +57,7 @@ const routes = [
         name: 'not-found',
         component: () => import('@/components/NotFound404.vue'),
         props: { code: '404' },
+        meta: { title: 'Δεν βρέθηκε 404' },
       },
     ],
   },
@@ -62,6 +71,10 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   if (authStore.isAuthenticated) await authStore.ensureValidSession()
+
+  if (to.meta.title) {
+    document.title = to.meta.title as string
+  }
 
   if (to.meta.requiresAuth !== false && !authStore.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }

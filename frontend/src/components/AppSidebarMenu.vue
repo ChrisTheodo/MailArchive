@@ -47,10 +47,11 @@ onBeforeMount(() => userStore.fetchMe())
     type="list-item-avatar-two-line"
     color="background"
     class="flex-0-0"
+    data-testid="me-skeleton-loader"
   >
     <v-list-item variant="text" class="flex-0-0" rounded="md" lines="one">
       <template #prepend>
-        <v-avatar color="primary">
+        <v-avatar color="primary" data-testid="avatar">
           <span :class="['text-headline-small', { 'text-label-small': !expanded }]">{{
             avatarText
           }}</span>
@@ -82,6 +83,7 @@ onBeforeMount(() => userStore.fetchMe())
               :icon="menu ? 'i-mdi-menu-close' : 'i-mdi-menu-open'"
               size="x-small"
               variant="text"
+              data-testid="sidebar-menu-button"
             />
           </template>
 
@@ -93,6 +95,8 @@ onBeforeMount(() => userStore.fetchMe())
               :append-icon="item.icon"
               @click="item.action?.()"
               :to="item.to"
+              data-testid="sidebar-menu-item"
+              :data-value="item.id"
             >
               {{ item.title }}
 

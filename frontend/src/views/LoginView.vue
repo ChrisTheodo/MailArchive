@@ -67,6 +67,7 @@ async function submit() {
           density="compact"
           class="mb-4"
           text="Λάθος email ή κωδικός πρόσβασης"
+          data-testid="login-alert-message"
         />
 
         <v-form ref="form" @submit.prevent="submit">
@@ -82,6 +83,7 @@ async function submit() {
             autofocus
             class="mb-2"
             clearable
+            data-testid="email-input"
           />
 
           <v-text-field
@@ -95,6 +97,7 @@ async function submit() {
             :disabled="auth.isLoginLoading"
             @click:append-inner="showPassword = !showPassword"
             clearable
+            data-testid="password-input"
           />
 
           <v-btn
@@ -106,6 +109,7 @@ async function submit() {
             flat
             class="mt-4"
             :loading="auth.isLoginLoading"
+            data-testid="login-button"
           >
             Σύνδεση
           </v-btn>

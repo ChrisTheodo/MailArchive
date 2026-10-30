@@ -124,8 +124,12 @@ watch(selectedFile, (file, previous) => {
               variant="outlined"
               class="mb-4"
             >
-              <v-btn value="existing" text="Υπάρχον mailbox" />
-              <v-btn value="new" text="Νέο mailbox" />
+              <v-btn
+                value="existing"
+                text="Υπάρχον mailbox"
+                data-testid="existing-mailbox-button"
+              />
+              <v-btn value="new" text="Νέο mailbox" data-testid="new-mailbox-button" />
             </v-btn-toggle>
 
             <v-select
@@ -137,12 +141,14 @@ watch(selectedFile, (file, previous) => {
               item-value="mailboxId"
               :loading="mailboxStore.isLoadingMailboxes"
               :rules="[requiredRule]"
+              date-testid="mailbox-select"
             />
             <v-text-field
               v-else
               v-model="newMailboxName"
               label="Όνομα νέου mailbox"
               :rules="[requiredRule]"
+              date-testid="new-mailbox-name-input"
             />
 
             <v-file-input
@@ -151,6 +157,7 @@ watch(selectedFile, (file, previous) => {
               accept=".pst"
               show-size
               :rules="[requiredRule, pstExtensionRule, maxFileSizeRule]"
+              data-testid="pst-file-input"
             />
           </v-form>
         </v-card-text>
@@ -158,13 +165,19 @@ watch(selectedFile, (file, previous) => {
         <v-divider />
 
         <v-card-actions>
-          <v-btn text="Κλείσιμο" :disabled="isSubmitting" @click="isActive.value = false" />
+          <v-btn
+            text="Κλείσιμο"
+            :disabled="isSubmitting"
+            @click="isActive.value = false"
+            data-testid="close-button"
+          />
           <v-btn
             text="Επιβεβαίωση"
             color="primary"
             variant="tonal"
             :loading="isSubmitting"
             @click="confirmUpload(isActive)"
+            data-testid="submit-button"
           />
         </v-card-actions>
       </v-card>

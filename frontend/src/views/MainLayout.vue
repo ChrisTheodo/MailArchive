@@ -28,10 +28,10 @@ function toggleSidebar() {
     <template #prepend>
       <v-app-bar-nav-icon @click="toggleSidebar" />
       <div class="brand">
-        <v-avatar color="transparent" size="75">
+        <v-avatar color="transparent" size="75" data-testid="logo-avatar">
           <img :src="toolboxLogo" />
         </v-avatar>
-        <span class="brand-title">Mail Archive</span>
+        <span class="brand-title" data-testid="brand-title">Mail Archive</span>
       </div>
     </template>
 
@@ -48,6 +48,7 @@ function toggleSidebar() {
     @update:rail="(collapsed: boolean) => (isHovering = !collapsed)"
     open-delay="200"
     close-delay="200"
+    data-testid="navigation-drawer"
   >
     <AppSidebar :expanded="sidebarExpanded" :isMobile="mobile" />
   </v-navigation-drawer>
