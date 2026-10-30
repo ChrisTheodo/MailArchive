@@ -26,6 +26,7 @@ useEventListener(document, 'visibilitychange', async () => {
       location="bottom end"
       timer="bottom"
       closable
+      data-testid="snackbar-queue"
     />
   </v-app>
 </template>

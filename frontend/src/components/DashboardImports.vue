@@ -228,7 +228,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <v-expansion-panel-title>
+  <v-expansion-panel-title data-testid="imports-panel-button">
     <v-icon
       :icon="isOpened ? 'i-mdi-database-import' : 'i-mdi-database-import-outline'"
       class="mr-3"
@@ -258,6 +258,7 @@ onBeforeUnmount(() => {
           variant="outlined"
           hide-details
           clearable
+          data-testid="imports-search-input"
         />
       </v-col>
       <v-col cols="12" sm>
@@ -272,6 +273,7 @@ onBeforeUnmount(() => {
           closable-chips
           clearable
           hide-details
+          data-testid="imports-status-select"
         />
       </v-col>
       <v-col cols="auto" class="d-flex align-center">
@@ -282,6 +284,7 @@ onBeforeUnmount(() => {
           title="Ανανέωση"
           :loading="importStore.isLoadingImports"
           @click="loadImports"
+          data-testid="imports-refresh-button"
         />
       </v-col>
     </v-row>
@@ -302,6 +305,7 @@ onBeforeUnmount(() => {
             <v-list-item
               :title="titleOf(item)"
               :subtitle="startedAtOf(item)"
+              data-testid="import-item"
               :data-import-id="item.id"
               :data-status="item.status"
               :data-cancelling="isBeingCancelled(item)"
@@ -333,7 +337,7 @@ onBeforeUnmount(() => {
                   size="small"
                   variant="tonal"
                   label
-                  :data-testid="item.status"
+                  data-testid="import-status"
                 >
                   {{ statusOf(item).label }}
                 </v-chip>
@@ -354,6 +358,7 @@ onBeforeUnmount(() => {
                             :disabled="!actionsFor(item).length"
                             icon="i-mdi-dots-vertical"
                             @click.stop.prevent
+                            data-test-id="imports-menu-button"
                           />
                         </span>
                       </template>
@@ -385,6 +390,7 @@ onBeforeUnmount(() => {
           total-visible="5"
           density="comfortable"
           class="mt-2"
+          data-testid="pagination-component"
         />
       </template>
 

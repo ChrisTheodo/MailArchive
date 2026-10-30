@@ -14,5 +14,6 @@ const emit = defineEmits<{ click: [] }>()
     :title="titleCondition ? 'Εμφάνιση λιγότερων' : 'Εμφάνιση όλων'"
     @click="emit('click')"
     variant="tonal"
+    data-testid="show-all-list-item"
   />
 </template>

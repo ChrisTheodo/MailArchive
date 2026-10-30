@@ -169,6 +169,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     @update:model-value="onSearchInput"
     @keydown.enter="submitSearch"
     @click:clear="onSearchClear"
+    data-testid="searchbar-input"
   >
     <template #append-inner>
       <v-menu
@@ -184,6 +185,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
             class="filter-icon"
             :icon="activeFilterCount ? 'i-mdi-filter' : 'i-mdi-filter-outline'"
             title="Φίλτρα"
+            data-testid="filter-menu-button"
           />
         </template>
 
@@ -198,6 +200,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   density="compact"
                   hide-details
                   clearable
+                  data-testid="filters-sender-input"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -208,6 +211,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   density="compact"
                   hide-details
                   clearable
+                  data-testid="filters-recipient-input"
                 />
               </v-col>
               <v-col cols="12">
@@ -218,6 +222,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   density="compact"
                   hide-details
                   clearable
+                  data-testid="filters-subject-input"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -229,6 +234,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   variant="outlined"
                   hide-details
                   clearable
+                  data-testid="filters-fromDate-date-input"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -242,6 +248,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   variant="outlined"
                   hide-details="auto"
                   clearable
+                  data-testid="filters-toDate-date-input"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -253,6 +260,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   density="compact"
                   hide-details
                   clearable
+                  data-testid="filters-mailbox-select"
                 />
               </v-col>
               <v-col cols="12" sm="6">
@@ -263,6 +271,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   variant="outlined"
                   density="compact"
                   hide-details
+                  data-testid="filters-attachment-option-select"
                 />
               </v-col>
               <v-col cols="12">
@@ -273,13 +282,18 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
                   density="compact"
                   hide-details
                   clearable
+                  data-testid="filters-attachmentName-input"
                 />
               </v-col>
             </v-row>
 
             <div class="d-flex justify-end ga-2 mt-4">
-              <v-btn variant="text" @click="resetDraftFilters">Καθαρισμός</v-btn>
-              <v-btn type="submit" color="primary" variant="flat">Αναζήτηση</v-btn>
+              <v-btn variant="text" @click="resetDraftFilters" data-testid="clear-filters-button"
+                >Καθαρισμός</v-btn
+              >
+              <v-btn type="submit" color="primary" variant="flat" data-testid="search-button"
+                >Αναζήτηση</v-btn
+              >
             </div>
           </v-form>
         </v-card>
@@ -295,6 +309,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         tag="button"
         @click="toggleAISearchMode"
         title="Αναζήτηση με AI"
+        data-testid="activate-aiSearch-button"
       />
     </template>
   </v-text-field>

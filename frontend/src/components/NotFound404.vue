@@ -44,6 +44,7 @@ function goBack() {
           variant="outlined"
           rounded="pill"
           @click="goBack"
+          data-testid="not-found-go-back-button"
         >
           Επιστροφή
         </v-btn>

@@ -210,6 +210,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           control-variant="stacked"
           :precision="0"
           hide-details
+          data-testid="page-number-input"
         />
       </v-container>
       <span class="text-medium-emphasis small">{{ rangeText }}</span>
@@ -223,13 +224,28 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           size="small"
           @update:model-value="goToPage"
           class="mx-2"
+          data-testid="result-pagination-component"
         >
           <template #next="{ onClick, disabled }">
-            <v-icon icon="i-mdi-chevron-right" size="small" :disabled="disabled" @click="onClick" />
+            <v-icon
+              icon="i-mdi-chevron-right"
+              size="small"
+              :disabled="disabled"
+              @click="onClick"
+              role="button"
+              data-testid="next-page-button"
+            />
             <v-tooltip activator="parent" location="top center" text="Επόμενη σελίδα" />
           </template>
           <template #prev="{ onClick, disabled }">
-            <v-icon icon="i-mdi-chevron-left" size="small" :disabled="disabled" @click="onClick" />
+            <v-icon
+              icon="i-mdi-chevron-left"
+              size="small"
+              :disabled="disabled"
+              @click="onClick"
+              role="button"
+              data-testid="prev-page-button"
+            />
             <v-tooltip activator="parent" location="top center" text="Προηγούμενη σελίδα" />
           </template>
         </v-pagination>
@@ -246,6 +262,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
               hide-details
               class="flex-0-0"
               @update:model-value="changePageSize"
+              data-testid="page-size-select"
             />
           </template>
         </v-tooltip>
@@ -257,6 +274,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
         title="Refresh"
         :disabled="isLoading"
         @click="load"
+        data-testid="refresh-results-button"
       />
     </template>
   </div>
@@ -272,14 +290,22 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
     <template #default="{ items: rows }">
       <v-list class="py-0" lines="one">
         <template v-for="{ raw: item } in rows" :key="item.id">
-          <v-list-item class="mail-row" @click="open(item)">
+          <v-list-item class="mail-row" @click="open(item)" data-testid="email-row">
             <div class="row-body">
               <span class="sender">{{ senderOf(item) }}</span>
-              <v-chip v-if="isSearch" size="x-small" label class="flex-0-0">
+              <v-chip
+                v-if="isSearch"
+                size="x-small"
+                label
+                class="flex-0-0"
+                data-testid="mailbox-display-name"
+              >
                 {{ item.mailboxDisplayName }}
               </v-chip>
               <span class="preview">
-                <span class="subject">{{ item.subject || '(χωρίς θέμα)' }}</span>
+                <span class="subject" data-testid="email-subject">{{
+                  item.subject || '(χωρίς θέμα)'
+                }}</span>
                 <span v-if="item.searchSnippet" class="text-medium-emphasis">
                   — {{ item.searchSnippet }}
                 </span>
@@ -294,6 +320,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
                   size="small"
                   class="text-medium-emphasis mr-2"
                   :title="item.attachmentFileNames.join(', ')"
+                  data-testid="has-attachments-icon"
                 />
                 <span class="date">{{ dateOf(item) }}</span>
                 <v-icon
@@ -304,6 +331,8 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
                   title="Διαγραφή"
                   :disabled="emailStore.isDeletingEmail"
                   @click.stop.prevent="askDeleteEmail(item)"
+                  role="button"
+                  data-testid="trash-button"
                 />
               </div>
             </template>

@@ -154,14 +154,20 @@ watch(
 
   <div class="scroll scrollbar">
     <div v-if="email" class="mail">
-      <h1 class="subject">Θέμα: {{ email.subject || '(χωρίς θέμα)' }}</h1>
+      <h1 class="subject" data-testid="subject">Θέμα: {{ email.subject || '(χωρίς θέμα)' }}</h1>
 
       <div class="sender-row">
         <v-avatar color="primary" size="40">{{ senderInitial }}</v-avatar>
         <div class="sender-info">
           <div>
             <strong>{{ senderLabel }}</strong>
-            <span v-if="email.senderName && email.senderEmail" class="text-medium-emphasis small">
+            <span
+              v-if="email.senderName && email.senderEmail"
+              class="text-medium-emphasis small"
+              data-testid="sender-email"
+              :data-sender-name="email.senderName"
+              :data-sender-email="email.senderEmail"
+            >
               &lt;{{ email.senderEmail }}&gt;
             </span>
           </div>
@@ -169,15 +175,30 @@ watch(
             v-for="group in recipientGroups"
             :key="group.type"
             class="text-medium-emphasis small recipients"
+            data-testid="recipient-group"
+            :data-type="group.type"
           >
             {{ group.type.toLowerCase() }}:
-            <span v-for="(r, i) in group.recipients" :key="r.id" :title="r.recipientEmail">
+            <span
+              v-for="(r, i) in group.recipients"
+              :key="r.id"
+              :title="r.recipientEmail"
+              data-testid="recipient"
+              :data-value="r.id"
+              :data-recipient-email="r.recipientEmail"
+              :data-recipient-name="r.recipientName"
+            >
               {{ recipientLabel(r) }}<template v-if="i < group.recipients.length - 1">, </template>
             </span>
           </div>
         </div>
         <v-spacer />
-        <span v-if="date" class="text-medium-emphasis small date">
+        <span
+          v-if="date"
+          class="text-medium-emphasis small date"
+          data-testid="date"
+          :data-value="date"
+        >
           {{ formatLongDate(date) }}
         </span>
       </div>
@@ -191,9 +212,12 @@ watch(
         :sandbox="FRAME_SANDBOX"
         title="Email content"
         @load="onFrameLoad"
+        data-testid="html-frame"
       />
-      <div v-else-if="email.bodyText" class="body">{{ email.bodyText }}</div>
-      <div v-else class="body text-medium-emphasis">(δεν υπάρχει περιεχόμενο)</div>
+      <div v-else-if="email.bodyText" class="body" data-testid="body">{{ email.bodyText }}</div>
+      <div v-else class="body text-medium-emphasis" data-testid="no-content-body">
+        (δεν υπάρχει περιεχόμενο)
+      </div>
 
       <div v-if="email.attachments.length" class="attachments">
         <div class="text-medium-emphasis small mb-2">
@@ -209,6 +233,8 @@ watch(
             variant="outlined"
             :title="`Download ${a.fileName}`"
             @click="download(a)"
+            data-testid="attachment"
+            :data-value="a.fileName"
           >
             {{ a.fileName }}
             <span class="text-medium-emphasis ml-1">({{ formatSize(a.sizeBytes) }})</span>
@@ -219,8 +245,15 @@ watch(
                 size="14"
                 width="2"
                 class="ml-2"
+                data-testid="downloading-attachment"
               />
-              <v-icon v-else icon="i-mdi-download" size="small" class="ml-2" />
+              <v-icon
+                v-else
+                icon="i-mdi-download"
+                size="small"
+                class="ml-2"
+                data-testid="download-attachment"
+              />
             </template>
           </v-chip>
         </div>

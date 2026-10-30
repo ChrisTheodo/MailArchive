@@ -129,7 +129,8 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           :disabled="isMailboxImporting(mailbox)"
           prepend-icon="i-mdi-inbox-outline"
           rounded="lg"
-          :v-bind:title.attr="mailbox.mailboxId"
+          data-testid="mailbox"
+          :data-value="mailbox.mailboxId"
         >
           <v-tooltip activator="parent" location="end" open-delay="400">
             {{ mailbox.displayName }}
@@ -159,6 +160,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
                     :color="menuOpen ? 'primary' : undefined"
                     icon="i-mdi-dots-vertical"
                     @click.stop.prevent
+                    data-testid="mailbox-menu-button"
                   />
                 </template>
 
@@ -169,6 +171,8 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
                     :prepend-icon="item.icon"
                     :title="item.title"
                     @click="item.action(mailbox)"
+                    data-testid="mailbox-menu-action"
+                    :data-mailbox-action="item.id"
                   />
                 </v-list>
               </v-menu>
@@ -179,6 +183,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           :showCondition="expanded && hasHiddenMailboxes"
           :title-condition="showAllMailboxes"
           @click="toggleShowAllMailboxes"
+          data-testid="show-all-mailboxes-button"
         />
       </v-list>
 
@@ -225,6 +230,7 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
         label="Νέο Όνομα"
         density="compact"
         variant="outlined"
+        data-testid="new-mailbox-name-input"
       />
     </ConfirmDialog>
     <AppSidebarMenu :expanded="expanded" />
