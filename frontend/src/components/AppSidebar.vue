@@ -23,11 +23,20 @@ const router = useRouter()
 const MAILBOX_SHOW_COUNT = 6
 const mailboxActions: MailboxAction[] = [
   {
+    id: 'edit_mailbox',
+    title: 'Αλλαγή ονόματος mailbox',
+    icon: 'i-mdi-rename-outline',
+    action: (mailbox) => {
+      mailboxToEdit.value = mailbox
+      isRenameDialogOpen.value = true
+    },
+  },
+  {
     id: 'delete_mailbox',
     title: 'Διαγραφή mailbox',
     icon: 'i-mdi-trash-can-outline',
     action: (mailbox) => {
-      mailboxToDelete.value = mailbox
+      mailboxToEdit.value = mailbox
       isDeleteDialogOpen.value = true
     },
   },
@@ -42,8 +51,10 @@ const filteredMailboxes = computed(() => {
   return mailboxStore.mailboxes.slice(0, MAILBOX_SHOW_COUNT)
 })
 const hasHiddenMailboxes = computed(() => mailboxStore.mailboxes.length > MAILBOX_SHOW_COUNT)
+const isRenameDialogOpen = ref(false)
 const isDeleteDialogOpen = ref(false)
-const mailboxToDelete = ref<MyMailboxResponse | null>(null)
+const mailboxToEdit = ref<MyMailboxResponse | null>(null)
+const newMailboxName = ref('')
 
 // METHODS
 function toggleShowAllMailboxes() {
@@ -59,7 +70,7 @@ function isMailboxActive(mailboxId: string) {
 }
 
 async function confirmDeleteMailbox() {
-  const mailbox = mailboxToDelete.value
+  const mailbox = mailboxToEdit.value
   if (!mailbox) return
 
   const ok = await mailboxStore.deleteMailbox({ id: mailbox.mailboxId })
@@ -67,7 +78,26 @@ async function confirmDeleteMailbox() {
 
   isDeleteDialogOpen.value = false
   if (isMailboxActive(mailbox.mailboxId)) router.push({ name: 'home' })
-  mailboxToDelete.value = null
+  mailboxToEdit.value = null
+}
+
+async function confirmRenameMailbox(displayName: string) {
+  const mailbox = mailboxToEdit.value
+  if (!mailbox) return
+
+  const ok = await mailboxStore.renameMailbox({
+    mailboxId: mailbox.mailboxId,
+    body: { displayName },
+  })
+  if (!ok) return
+
+  const renamedMailbox = mailboxStore.mailboxes.find((x) => x === mailboxToEdit.value)
+  if (renamedMailbox) {
+    renamedMailbox.displayName = displayName
+  }
+  isRenameDialogOpen.value = false
+  if (isMailboxActive(mailbox.mailboxId)) router.push({ name: 'home' })
+  mailboxToEdit.value = null
 }
 
 if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
@@ -99,7 +129,12 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
           :disabled="isMailboxImporting(mailbox)"
           prepend-icon="i-mdi-inbox-outline"
           rounded="lg"
+          :v-bind:title.attr="mailbox.mailboxId"
         >
+          <v-tooltip activator="parent" location="end" open-delay="400">
+            {{ mailbox.displayName }}
+          </v-tooltip>
+
           <v-overlay
             :model-value="isMailboxImporting(mailbox)"
             class="align-center justify-center"
@@ -168,12 +203,29 @@ if (!mailboxStore.mailboxes.length) mailboxStore.fetchMailboxes()
       confirm-color="error"
       icon="i-mdi-alert-outline"
       :loading="mailboxStore.isDeletingMailbox"
-      @cancel="mailboxToDelete = null"
+      @cancel="mailboxToEdit = null"
       @confirm="confirmDeleteMailbox"
     >
       Θέλετε σίγουρα να διαγράψετε το
-      <strong>{{ mailboxToDelete?.displayName }}</strong
+      <strong>{{ mailboxToEdit?.displayName }}</strong
       >; Όλα τα emails και τα συνημμένα του θα διαγραφούν οριστικά.
+    </ConfirmDialog>
+    <ConfirmDialog
+      v-model="isRenameDialogOpen"
+      title="Μετονομασία mailbox"
+      confirm-text="Επιβεβαίωση"
+      confirm-color="primary"
+      :loading="mailboxStore.isRenamingMailbox"
+      @cancel="mailboxToEdit = null"
+      @confirm="confirmRenameMailbox(newMailboxName)"
+      confirm-variant="tonal"
+    >
+      <v-text-field
+        v-model="newMailboxName"
+        label="Νέο Όνομα"
+        density="compact"
+        variant="outlined"
+      />
     </ConfirmDialog>
     <AppSidebarMenu :expanded="expanded" />
   </div>

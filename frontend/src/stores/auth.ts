@@ -62,6 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
     useMailboxStore().$reset()
     useImportStore().$reset()
     useUserStore().$reset()
+    useSnackbarMessagesStore().$reset()
   }
 
   async function login(email: string, password: string) {
