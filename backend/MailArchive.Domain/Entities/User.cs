@@ -16,6 +16,9 @@ public class User
 
     public bool IsActive { get; set; } = true;
 
+    public string? MicrosoftObjectId { get; set; }
+    public string? MicrosoftTenantId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     

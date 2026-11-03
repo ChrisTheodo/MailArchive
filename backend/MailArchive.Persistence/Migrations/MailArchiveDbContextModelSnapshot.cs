@@ -423,6 +423,14 @@ namespace MailArchive.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MicrosoftObjectId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("MicrosoftTenantId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -436,6 +444,9 @@ namespace MailArchive.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("MicrosoftTenantId", "MicrosoftObjectId")
                         .IsUnique();
 
                     b.ToTable("Users");
