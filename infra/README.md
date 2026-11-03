@@ -63,13 +63,27 @@ You also need a GitHub **environment** called `production`, because the federate
 az deployment group create -g rg-emailarchive -f infra/main.bicep \
   -p apiImage=acremailarchivenee5ys.azurecr.io/mailarchive-api:<tag> \
      webImage=acremailarchivenee5ys.azurecr.io/mailarchive-web:<tag> \
-     customDomain=archive.tbxdev.gr managedCertificateName=<cert-name>
 ```
+
+`customDomain` (`archive.tbxdev.gr`) and `managedCertificateName` (`mc-cae-emailarchi-archive-tbxdev-g-8167`) default to the live values, so a redeploy keeps the HTTPS binding.
+
+## Custom domain
+
+- URL: **https://archive.tbxdev.gr**. Default URL: https://archive.thankfulbush-4942322e.northeurope.azurecontainerapps.io
+- DNS records in tbxdev.gr: CNAME `archive` → `archive.thankfulbush-4942322e.northeurope.azurecontainerapps.io`, and TXT `asuid.archive` → `B910BADDFD3DC05B326C53CC85B7FB995F07C9428848E718620D834FCA74FF57`. Keep both, because the managed certificate (GeoTrust/DigiCert) renews automatically and needs them.
+- HTTP redirects to HTTPS.
+
+## Database
+
+- Server `toolbox` (rg-bcm), database `mailarchive`, login **`mailarchive_app`**. This role owns the database, the `public` schema and all of its tables, and its password exists only in Key Vault `db-connection`.
+- The existing data was kept: all 10 EF migrations were already applied, so the first start made no schema changes.
+- An on-demand server backup `pre-mailarchive-aca-20261103` was taken before the role change.
 
 ## Operational notes
 
 - **Keep the API at exactly one replica.** Imports run on an in-process background queue (`QueuedHostedService`), and `StaleImportRecoveryService` assumes a single instance.
-- **Migrations and seeding run at startup.** `DataSeeder` creates `admin@example.com` / `Admin123!`, a sample user and demo mailboxes. **Change the admin password right after the first login.** Ideally, disable demo seeding in Production.
+- **Migrations and seeding run at startup.** `DataSeeder` creates `admin@example.com` / `Admin123!` if it's missing, and regenerates demo attachment PDFs in `/app/seed-storage`, which is not persistent. Change the seeded password and disable demo seeding in Production.
+- **Existing attachment and PST files are not in Azure yet.** The database rows point to `storage/attachments/...` and `storage/imports/...` (plus 2 paths under a developer's `C:\Users\...`). Those files are on the developer machine that created them. To make downloads work, upload that machine's `MailArchive.API/storage/` contents to the `mailarchive-storage` share, keeping the `attachments/` and `imports/` folders.
 - **Large PST uploads:** the API accepts up to 1 GB and nginx allows 1100 MB. Container Apps ingress has a request timeout of about 4 minutes, so very large uploads over slow links can fail. If that happens, move uploads to direct-to-Blob SAS uploads.
 - **Postgres access:** `toolbox` allows "Azure services", which covers Container Apps. To tighten it, replace that rule with the environment's outbound IP.
 - **Logs:** Portal → `archive-api` → Log stream, or Log Analytics table `ContainerAppConsoleLogs_CL`.

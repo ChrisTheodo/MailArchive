@@ -17,10 +17,10 @@ param apiImage string = ''
 param webImage string = ''
 
 @description('Custom hostname for the web app (empty = none). Bound with a managed certificate after DNS is in place.')
-param customDomain string = ''
+param customDomain string = 'archive.tbxdev.gr'
 
 @description('Name of an existing managed certificate in the environment for customDomain (empty = not yet bound).')
-param managedCertificateName string = ''
+param managedCertificateName string = 'mc-cae-emailarchi-archive-tbxdev-g-8167'
 
 param jwtIssuer string = 'MailArchive'
 param jwtAudience string = 'MailArchive'
@@ -214,6 +214,9 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = if (deployApps) {
             { name: 'MailArchive__PstParserProvider', value: 'XstReader' }
             { name: 'MailArchive__MaxPageSize', value: '100' }
             { name: 'MailArchive__EnableAuditLogs', value: 'true' }
+            { name: 'Logging__LogLevel__Default', value: 'Information' }
+            { name: 'Logging__LogLevel__Microsoft.AspNetCore', value: 'Warning' }
+            { name: 'Logging__LogLevel__Microsoft.EntityFrameworkCore.Database.Command', value: 'Warning' }
           ]
           volumeMounts: [
             { volumeName: 'storage', mountPath: '/app/storage' }
