@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/.idea/
+**/.vs/
+**/storage/imports/
+**/storage/attachments/
+**/*.pst
+**/appsettings.Development.json
+**/*.user
+scripts/
+download
