@@ -1,0 +1,86 @@
+name: Build & deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/deploy-azure.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC sign-in to Azure (no stored secrets)
+  contents: read
+
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: false
+
+env:
+  RESOURCE_GROUP: rg-emailarchive
+  API_APP: archive-api
+  WEB_APP: archive
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-api:${{ github.sha }}
+            ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build & push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-web:${{ github.sha }}
+            ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Deploy API
+        run: |
+          az containerapp update -g $RESOURCE_GROUP -n $API_APP \
+            --image ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-api:${{ github.sha }} \
+            --revision-suffix r${GITHUB_SHA::7}
+
+      - name: Deploy web
+        run: |
+          az containerapp update -g $RESOURCE_GROUP -n $WEB_APP \
+            --image ${{ vars.ACR_NAME }}.azurecr.io/mailarchive-web:${{ github.sha }} \
+            --revision-suffix r${GITHUB_SHA::7}
+
+      - name: Smoke test
+        run: |
+          FQDN=$(az containerapp show -g $RESOURCE_GROUP -n $WEB_APP --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://$FQDN/healthz || true)
+            [ "$code" = "200" ] && echo "Web healthy at https://$FQDN" && exit 0
+            sleep 10
+          done
+          echo "Web app did not become healthy" && exit 1
