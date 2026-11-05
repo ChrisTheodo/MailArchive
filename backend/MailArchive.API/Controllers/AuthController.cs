@@ -76,7 +76,6 @@ public class AuthController : ControllerBase
         return Challenge(properties, "Microsoft");
     }
 
-    // Current authenticated user
     [Authorize]
     [HttpGet("me")]
     public IActionResult Me()
