@@ -21,6 +21,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PasswordHash)
             .HasMaxLength(500);
 
+        builder.Property(x => x.MicrosoftObjectId)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.MicrosoftTenantId)
+            .HasMaxLength(100);
+
         builder.Property(x => x.CreatedAt)
             .IsRequired();
 
@@ -32,6 +38,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.HasIndex(x => x.Email)
             .IsUnique();
+
+        builder.HasIndex(x => new
+        {
+            x.MicrosoftTenantId,
+            x.MicrosoftObjectId
+        })
+        .IsUnique();
 
         builder
             .HasMany(x => x.Mailboxes)

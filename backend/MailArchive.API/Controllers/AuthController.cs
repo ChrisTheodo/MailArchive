@@ -1,8 +1,11 @@
 using MailArchive.Application.Auth;
 using MailArchive.Application.Common;
 using MailArchive.Application.Contracts.Auth;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace MailArchive.API.Controllers;
 
@@ -11,10 +14,14 @@ namespace MailArchive.API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _service;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(IAuthService service)
+    public AuthController(
+        IAuthService service,
+        IConfiguration configuration)
     {
         _service = service;
+        _configuration = configuration;
     }
 
     [AllowAnonymous]
@@ -43,7 +50,8 @@ public class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("refresh/revoke")]
-    public async Task<IActionResult> RevokeRefreshToken(RefreshTokenRequest request)
+    public async Task<IActionResult> RevokeRefreshToken(
+        RefreshTokenRequest request)
     {
         var result = await _service.RevokeRefreshTokenAsync(request);
 
@@ -53,9 +61,39 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<string>.Ok(result.Value!));
     }
 
+    [AllowAnonymous]
+    [HttpGet("microsoft/login")]
+    public IActionResult MicrosoftLogin()
+    {
+        var frontendUrl =
+            _configuration["Frontend:BaseUrl"] ?? "http://localhost:5173";
+
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = frontendUrl
+        };
+
+        return Challenge(properties, "Microsoft");
+    }
+
+    [Authorize]
+    [HttpGet("me")]
+    public IActionResult Me()
+    {
+        return Ok(new
+        {
+            id = User.FindFirstValue(ClaimTypes.NameIdentifier),
+            email = User.FindFirstValue(ClaimTypes.Email),
+            displayName = User.FindFirstValue(ClaimTypes.Name),
+            role = User.FindFirstValue(ClaimTypes.Role),
+            isAdmin = User.IsInRole("Admin")
+        });
+    }
+
     [Authorize]
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout([FromBody] LogoutRequest? request)
+    public async Task<IActionResult> Logout(
+        [FromBody] LogoutRequest? request)
     {
         var result = await _service.LogoutAsync(
             request ?? new LogoutRequest(null));
@@ -64,5 +102,15 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse<string>.Fail(result.Error!));
 
         return Ok(ApiResponse<string>.Ok(result.Value!));
+    }
+
+    [Authorize]
+    [HttpPost("microsoft/logout")]
+    public async Task<IActionResult> MicrosoftLogout()
+    {
+        await HttpContext.SignOutAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme);
+
+        return NoContent();
     }
 }
