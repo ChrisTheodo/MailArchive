@@ -222,13 +222,10 @@ builder.Services
         {
             var principal = context.Principal;
 
-            var microsoftTenantId =
-                principal?.FindFirst("tid")?.Value;
+            var microsoftTenantId = principal?.FindFirst("tid")?.Value;
+            var microsoftObjectId = principal?.FindFirst("oid")?.Value;
 
-            var microsoftObjectId =
-                principal?.FindFirst("oid")?.Value;
-
-            // Validate that the account belongs to our company tenant.
+            // Validate company tenant and Microsoft identity.
             if (!string.Equals(
                     microsoftTenantId,
                     tenantId,
@@ -242,17 +239,48 @@ builder.Services
             var db = context.HttpContext.RequestServices
                 .GetRequiredService<MailArchiveDbContext>();
 
-            // Only users already registered in our database are allowed.
             var user = await db.Users.SingleOrDefaultAsync(
                 x => x.MicrosoftTenantId == microsoftTenantId &&
-                     x.MicrosoftObjectId == microsoftObjectId &&
-                     x.IsActive);
+                     x.MicrosoftObjectId == microsoftObjectId);
+
+            if (user != null && !user.IsActive)
+            {
+                context.Fail("This MailArchive account is inactive.");
+                return;
+            }
 
             if (user == null)
             {
-                context.Fail(
-                    "This Microsoft account is not registered in MailArchive.");
-                return;
+                var email =
+                    principal?.FindFirst("preferred_username")?.Value ??
+                    principal?.FindFirst("email")?.Value;
+
+                var displayName =
+                    principal?.FindFirst("name")?.Value;
+
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    context.Fail("Microsoft account email was not provided.");
+                    return;
+                }
+
+                user = new MailArchive.Domain.Entities.User
+                {
+                    Id = Guid.NewGuid(),
+                    Email = email,
+                    DisplayName = string.IsNullOrWhiteSpace(displayName)
+                        ? email
+                        : displayName,
+                    MicrosoftTenantId = microsoftTenantId,
+                    MicrosoftObjectId = microsoftObjectId,
+                    Role = MailArchive.Domain.Enums.UserRole.User,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                db.Users.Add(user);
+
+                await db.SaveChangesAsync();
             }
 
             var identity = principal?.Identity as ClaimsIdentity;
@@ -263,30 +291,17 @@ builder.Services
                 return;
             }
 
-            // Replace Microsoft identity claims with local MailArchive claims.
-            foreach (var claim in identity
-                         .FindAll(ClaimTypes.NameIdentifier).ToList())
-            {
+            foreach (var claim in identity.FindAll(ClaimTypes.NameIdentifier).ToList())
                 identity.RemoveClaim(claim);
-            }
 
-            foreach (var claim in identity
-                         .FindAll(ClaimTypes.Email).ToList())
-            {
+            foreach (var claim in identity.FindAll(ClaimTypes.Email).ToList())
                 identity.RemoveClaim(claim);
-            }
 
-            foreach (var claim in identity
-                         .FindAll(ClaimTypes.Name).ToList())
-            {
+            foreach (var claim in identity.FindAll(ClaimTypes.Name).ToList())
                 identity.RemoveClaim(claim);
-            }
 
-            foreach (var claim in identity
-                         .FindAll(ClaimTypes.Role).ToList())
-            {
+            foreach (var claim in identity.FindAll(ClaimTypes.Role).ToList())
                 identity.RemoveClaim(claim);
-            }
 
             identity.AddClaim(new Claim(
                 ClaimTypes.NameIdentifier,
