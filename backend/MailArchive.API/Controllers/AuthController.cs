@@ -106,11 +106,20 @@ public class AuthController : ControllerBase
 
     [Authorize]
     [HttpPost("microsoft/logout")]
-    public async Task<IActionResult> MicrosoftLogout()
+    public IActionResult MicrosoftLogout()
     {
-        await HttpContext.SignOutAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme);
+        var frontendUrl = _configuration["Frontend:BaseUrl"]
+            ?? "http://localhost:5173";
 
-        return NoContent();
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = frontendUrl
+        };
+
+        return SignOut(
+            properties,
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            "Microsoft"
+        );
     }
 }
